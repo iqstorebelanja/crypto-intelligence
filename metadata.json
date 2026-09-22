@@ -1,0 +1,6 @@
+{
+  "name": "Crypto Intelligence AI",
+  "description": "AI-powered crypto market scanner, technical indicator engine, market structure analysis, market sentiment index, and trading intelligence platform.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
