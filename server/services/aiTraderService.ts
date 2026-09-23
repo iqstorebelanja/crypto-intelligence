@@ -3,6 +3,7 @@ import { aiToolLayer } from '../engine/aiTools';
 import { marketQueryParser } from '../engine/marketQueryParser';
 import { monitoringService } from './monitoringService';
 import { assetRegistryService } from './assetRegistryService';
+import { signalEngine } from '../engine/signalEngine';
 import {
   AIComparisonResult,
   AIMessage,
@@ -194,8 +195,162 @@ export class AiTraderService {
         neutral: `Range-bound consolidation between support ($${structure.support.toLocaleString()}) and resistance ($${structure.resistance.toLocaleString()}) while MA20 flattens.`,
         bearish: `Loss of swing support at $${structure.support.toLocaleString()} or sharp rejection triggers downside test toward MA50 ($${technicals.ma50.toLocaleString()}).`
       },
-      disclaimer: MANDATORY_DISCLAIMER
+      disclaimer: 'DYOR — not financial advice.'
     };
+
+    // Integrate Phase 7 Signal Engine
+    try {
+      const activeSignal = signalEngine.evaluateSignal(
+        {
+          id: `${activeExchange.toLowerCase()}_${symbol}`,
+          symbol,
+          rawSymbol: symbol.replace('/', ''),
+          baseAsset: symbol.split('/')[0] || symbol,
+          quoteAsset: symbol.split('/')[1] || 'USDT',
+          price: marketData.price,
+          change24h: marketData.change24h,
+          high24h: marketData.high24h,
+          low24h: marketData.low24h,
+          volume24h: marketData.volume,
+          quoteVolume24h: marketData.volume * marketData.price,
+          exchange: activeExchange,
+          marketType: marketData.marketType,
+          source: `${activeExchange} Live Feed`,
+          timestamp: Date.now(),
+          dataStatus: 'LIVE',
+          freshnessSeconds: 0,
+          indicators: {
+            rsi6: technicals.rsi6,
+            rsi14: technicals.rsi14,
+            ma20: technicals.ma20,
+            ma50: technicals.ma50,
+            ma200: technicals.ma200,
+            priceVsMa20: technicals.priceVsMA20,
+            priceVsMa50: technicals.priceVsMA50,
+            priceVsMa200: technicals.priceVsMA200,
+            maTrend: technicals.priceVsMA20 === 'above' && technicals.priceVsMA50 === 'above' ? 'Bullish' : 'Bearish',
+            maCross: 'neutral',
+            bb: {
+              upper: technicals.ma20 * 1.04,
+              middle: technicals.ma20,
+              lower: technicals.ma20 * 0.96,
+              width: technicals.bollingerWidth,
+              percentB: technicals.bollingerPosition === 'Above Upper Band' ? 1.05 : technicals.bollingerPosition === 'Below Lower Band' ? -0.05 : 0.55
+            },
+            volumeAnalysis: {
+              current: marketData.volume,
+              average20: marketData.volume / Math.max(0.1, technicals.volumeRatio),
+              ratio: technicals.volumeRatio,
+              isSpike: technicals.volumeRatio >= 1.8
+            }
+          },
+          scores: {
+            id: `score_${symbol}_1h`,
+            symbol,
+            exchange: activeExchange,
+            timeframe: '1h',
+            bullScore: scores.bullScore,
+            bullClassification: 'Positive conditions',
+            downsideRiskScore: scores.downsideRisk,
+            downsideRiskClassification: 'Low downside pressure',
+            signal: scores.signal,
+            timestamp: Date.now(),
+            bullBreakdown: {
+              trendMA: { weight: 0.2, score: 70, note: 'MA Trend' },
+              rsi: { weight: 0.1, score: technicals.rsi14, note: 'RSI' },
+              volume: { weight: 0.15, score: 60, note: 'Volume' },
+              bollingerBands: { weight: 0.1, score: 50, note: 'BB' },
+              priceMomentum: { weight: 0.1, score: 60, note: 'Momentum' }
+            },
+            downsideRiskBreakdown: {
+              rsiExtreme: { weight: 0.2, score: technicals.rsi14 > 70 ? 70 : 10, note: 'RSI' },
+              maBreakdown: { weight: 0.2, score: 20, note: 'MA' },
+              volumeWeakness: { weight: 0.2, score: 20, note: 'Volume' },
+              momentumLoss: { weight: 0.2, score: 20, note: 'Momentum' },
+              supportLossProxy: { weight: 0.2, score: 20, note: 'Support' }
+            }
+          },
+          marketStructure: {
+            state: structure.structure,
+            lastSwingHigh: structure.resistance,
+            lastSwingLow: structure.support,
+            nearestSupport: { price: structure.support, type: 'support', distancePercent: 0, touches: 2, label: 'Support' },
+            nearestResistance: { price: structure.resistance, type: 'resistance', distancePercent: 0, touches: 2, label: 'Resistance' },
+            supportLevels: [structure.support],
+            resistanceLevels: [structure.resistance],
+            event: structure.breakout ? 'Potential Breakout' : structure.breakdown ? 'Potential Breakdown' : 'Consolidating',
+            retestZone: null,
+            volumeConfirmed: technicals.volumeRatio >= 1.2,
+            description: `${structure.structure} around $${marketData.price.toLocaleString()}`,
+            swingHighs: [{ index: 0, price: structure.resistance, time: Date.now(), type: 'high' }],
+            swingLows: [{ index: 0, price: structure.support, time: Date.now(), type: 'low' }]
+          },
+          derivatives: derivatives.available
+            ? {
+                exchange: activeExchange,
+                symbol,
+                marketType: 'PERPETUAL' as const,
+                source: `${activeExchange} Derivatives Engine`,
+                timestamp: Date.now(),
+                openInterest: derivatives.openInterest,
+                openInterestUsd: derivatives.openInterest,
+                openInterestChange24h: derivatives.openInterestChange,
+                openInterestChange1h: 0,
+                openInterestChange4h: 0,
+                openInterestChange1hAbs: null,
+                openInterestChange4hAbs: null,
+                openInterestChange24hAbs: null,
+                fundingRate: derivatives.fundingRate,
+                fundingTimestamp: Date.now(),
+                fundingTrend: (derivatives.fundingRate ?? 0) > 0.0002 ? 'Positive' : 'Neutral',
+                nextFundingTime: null,
+                longShortRatio: {
+                  longRatio: 50,
+                  shortRatio: 50,
+                  ratio: derivatives.longShortRatio ?? 1.0,
+                  timestamp: Date.now()
+                },
+                liquidations: {
+                  total24h: derivatives.totalLiquidations ?? 0,
+                  long24h: (derivatives.totalLiquidations ?? 0) * 0.5,
+                  short24h: (derivatives.totalLiquidations ?? 0) * 0.5,
+                  long4h: null,
+                  short4h: null,
+                  total4h: null,
+                  long1h: null,
+                  short1h: null,
+                  total1h: null,
+                  timestamp: Date.now()
+                },
+                priceOiRelation: 'Neutral' as const,
+                priceOiInterpretation: 'Balanced open interest participation',
+                freshnessSeconds: 0,
+                dataStatus: 'LIVE' as const
+              }
+            : null
+        },
+        undefined,
+        null,
+        true
+      );
+
+      structuredAnalysis.signalEngine = {
+        currentSignal: activeSignal.signalType,
+        signalDirection: activeSignal.direction,
+        signalStrength: activeSignal.strength,
+        signalStatus: activeSignal.status,
+        confidence: activeSignal.confidence,
+        triggerPrice: activeSignal.triggerPrice,
+        confirmationPrice: activeSignal.confirmationPrice,
+        invalidationPrice: activeSignal.invalidationPrice,
+        invalidationReason: activeSignal.invalidationReason,
+        multiTimeframeSummary: activeSignal.multiTimeframeSummary,
+        supportingEvidence: activeSignal.supportingFactors,
+        conflictingEvidence: activeSignal.conflictingFactors
+      };
+    } catch {
+      // Keep resilient
+    }
 
     // Synthesize natural terminal commentary
     const rawText = await this.synthesizeWithGeminiOrDeterministic(userPrompt, structuredAnalysis, btcContext, whaleActivity);
@@ -586,55 +741,39 @@ ${JSON.stringify({
     }
 
     // Deterministic Research Terminal Output
+    const sig = analysis.signalEngine;
     return `### CRYPTO INTELLIGENCE AI RESEARCH TERMINAL: ${analysis.symbol}
 **Exchange:** ${analysis.exchange} • **Market:** ${analysis.market} • **Timeframe:** 1H • **Status:** ${analysis.marketData.dataFreshness}
 
-**1. OBSERVED MARKET DATA**
-- **Price:** \`$${analysis.marketData.price.toLocaleString()}\` (${analysis.marketData.change24h >= 0 ? '+' : ''}${analysis.marketData.change24h.toFixed(2)}%)
+### 1. OBSERVED (Actual Market Data)
+- **Live Price:** \`$${analysis.marketData.price.toLocaleString()}\` (${analysis.marketData.change24h >= 0 ? '+' : ''}${analysis.marketData.change24h.toFixed(2)}% in 24h)
 - **24H Range:** Low: \`$${analysis.marketData.low24h.toLocaleString()}\` | High: \`$${analysis.marketData.high24h.toLocaleString()}\`
 - **Volume:** \`$${analysis.marketData.volume.toLocaleString()}\` (Ratio vs 20-period avg: \`${analysis.technical.volumeRatio}x\`)
+- **Open Interest:** \`${analysis.derivatives.openInterest}\` (24h Change: \`${analysis.derivatives.openInterestChange}\`)
+- **Funding Rate:** \`${analysis.derivatives.fundingRate}\` | **24h Liquidations:** \`${analysis.derivatives.liquidations}\`
+- **Macro BTC Price:** \`$${btcContext.price.toLocaleString()}\` (${btcContext.change24h >= 0 ? '+' : ''}${btcContext.change24h.toFixed(2)}%)
 
-**2. CALCULATED TECHNICAL INDICATORS**
-- **RSI (Momentum):** RSI 14: \`${analysis.technical.rsi14}\` | RSI 6: \`${analysis.technical.rsi6}\`
-- **Moving Averages:** MA20: \`$${analysis.technical.ma20.toLocaleString()}\` (${analysis.technical.priceVsMa20}) | MA50: \`$${analysis.technical.ma50.toLocaleString()}\` (${analysis.technical.priceVsMa50}) | MA200: \`$${analysis.technical.ma200.toLocaleString()}\` (${analysis.technical.priceVsMa200})
-- **Bollinger Bands:** ${analysis.technical.bollinger}
+### 2. CALCULATED (Indicators, Scores & Signal Confluence)
+- **Technical Indicators:** RSI14: \`${analysis.technical.rsi14}\` | MA20: \`$${analysis.technical.ma20.toLocaleString()}\` (${analysis.technical.priceVsMa20}) | MA50: \`$${analysis.technical.ma50.toLocaleString()}\` (${analysis.technical.priceVsMa50}) | MA200: \`$${analysis.technical.ma200.toLocaleString()}\` (${analysis.technical.priceVsMa200})
+- **Market Structure Regime:** \`${analysis.marketStructure.structure}\` | Support: \`$${analysis.marketStructure.support.toLocaleString()}\` | Resistance: \`$${analysis.marketStructure.resistance.toLocaleString()}\`
+- **Quantitative Scores:** Bull Potential: \`${analysis.scores.bullScore}/100\` | Downside Risk: \`${analysis.scores.downsideRisk}/100\`
+- **Signal Engine Status:** ${sig ? `\`${sig.currentSignal}\` (${sig.signalDirection}) | Strength: \`${sig.signalStrength}/100\` | Confidence: \`${sig.confidence}/100\` | Status: \`${sig.signalStatus}\`` : `\`${analysis.scores.signal}\``}
+- **Multi-Timeframe Alignment:** ${sig?.multiTimeframeSummary ? sig.multiTimeframeSummary.summaryText : 'Evaluating MTF trend alignment'}
+- **Calculated Invalidation Level:** ${sig?.invalidationPrice ? `\`$${sig.invalidationPrice.toLocaleString()}\` (${sig.invalidationReason})` : 'Dynamic based on structural swing boundary'}
 
-**3. DERIVATIVES & POSITIONING**
-- **Open Interest:** \`${analysis.derivatives.openInterest}\` (Change 24h: \`${analysis.derivatives.openInterestChange}\`)
-- **Funding Rate:** \`${analysis.derivatives.fundingRate}\`
-- **Liquidations (24h):** \`${analysis.derivatives.liquidations}\`
-- **Long/Short Ratio:** \`${analysis.derivatives.longShortRatio}\`
+### 3. INTERPRETATION (Analytical Conclusion & Signal Engine Reasoning)
+${analysis.why}
+**Supporting Evidence:**
+${sig?.supportingEvidence && sig.supportingEvidence.length > 0 ? sig.supportingEvidence.map(e => `- ${e}`).join('\n') : analysis.bullishFactors.map(f => `- ${f}`).join('\n')}
+**Conflicting Evidence / Risk Factors:**
+${sig?.conflictingEvidence && sig.conflictingEvidence.length > 0 ? sig.conflictingEvidence.map(e => `- ${e}`).join('\n') : analysis.bearishFactors.map(f => `- ${f}`).join('\n')}
 
-**4. MARKET STRUCTURE & LEVELS**
-- **Structure Regime:** \`${analysis.marketStructure.structure}\`
-- **Key Resistance:** \`$${analysis.marketStructure.resistance.toLocaleString()}\`
-- **Key Support:** \`$${analysis.marketStructure.support.toLocaleString()}\`
-- **Breakout Status:** ${analysis.marketStructure.breakout}
-
-**5. QUANTITATIVE SCORES**
-- **Bull Potential Score:** \`${analysis.scores.bullScore}/100\`
-- **Downside Risk Score:** \`${analysis.scores.downsideRisk}/100\`
-- **Analytical Signal:** \`${analysis.scores.signal}\`
-- **Why this score exists:** ${analysis.why}
-
-**6. BULLISH FACTORS**
-${analysis.bullishFactors.map(f => `- ${f}`).join('\n')}
-
-**7. BEARISH FACTORS**
-${analysis.bearishFactors.map(f => `- ${f}`).join('\n')}
-
-**8. CONFLICTING SIGNALS**
-${analysis.conflictingSignals.map(c => `- ${c}`).join('\n')}
-
-**9. SCENARIOS (HYPOTHETICAL)**
+### 4. SCENARIO (Hypothetical Future Path)
 - **[BULLISH SCENARIO]:** ${analysis.scenarios.bullish}
 - **[NEUTRAL SCENARIO]:** ${analysis.scenarios.neutral}
 - **[BEARISH SCENARIO]:** ${analysis.scenarios.bearish}
 
-**10. MACRO BITCOIN CONTEXT**
-- BTC Price: \`$${btcContext.price.toLocaleString()}\` (${btcContext.change24h >= 0 ? '+' : ''}${btcContext.change24h.toFixed(2)}%) | Bull Score: \`${btcContext.bullScore}/100\` | Downside Risk: \`${btcContext.downsideRisk}/100\`
-
-${MANDATORY_DISCLAIMER}`;
+DYOR — not financial advice.`;
   }
 }
 

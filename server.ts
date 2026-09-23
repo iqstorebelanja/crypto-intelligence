@@ -29,6 +29,8 @@ import { exchangeCapabilityRegistry } from './server/services/capabilityRegistry
 import { marketDataCache } from './server/services/marketDataCache';
 import { pipelineLogger } from './server/services/pipelineLogger';
 import { runPhase6Tests } from './server/tests/phase6EngineTests';
+import { signalEngine } from './server/engine/signalEngine';
+import { SignalEngineTestRunner } from './server/engine/signalEngineTests';
 import { adminRouter } from './server/routes/adminRoutes';
 import { ExchangeId, Timeframe, WhaleTxDirection, WhaleTxType } from './src/types';
 
@@ -498,6 +500,79 @@ async function startServer() {
         success: results.every(r => r.passed),
         totalTests: results.length,
         passedTests: results.filter(r => r.passed).length,
+        results
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==========================================
+  // PHASE 7: SIGNAL INTELLIGENCE ENGINE ROUTES
+  // ==========================================
+  app.get('/api/signals', (req, res) => {
+    const { symbol, exchange, timeframe, signalType, direction, status, minStrength, limit } = req.query;
+    const signals = db.getHistoricalSignals({
+      symbol: symbol as string,
+      exchange: exchange as string,
+      timeframe: timeframe as string,
+      signalType: signalType as string,
+      direction: direction as string,
+      status: status as string,
+      minStrength: minStrength ? parseFloat(minStrength as string) : undefined,
+      limit: limit ? parseInt(limit as string, 10) : 100
+    });
+    res.json({
+      count: signals.length,
+      signals
+    });
+  });
+
+  app.get('/api/signals/stats', (req, res) => {
+    const stats = db.getSignalQualityStats();
+    res.json(stats);
+  });
+
+  app.get('/api/signals/config', (req, res) => {
+    res.json({
+      config: db.signalConfig,
+      history: db.signalConfigHistory
+    });
+  });
+
+  app.post('/api/signals/config', requireAdmin, (req, res) => {
+    const adminUser = (req as any).adminUser?.email || 'admin';
+    const result = db.updateSignalConfig(req.body, adminUser);
+    if (!result.success) {
+      return res.status(400).json({ error: result.error });
+    }
+    db.addAdminAuditLog(adminUser, 'UPDATE_SIGNAL_ENGINE_CONFIG', 'signalEngine', {
+      version: result.config.version
+    });
+    res.json(result);
+  });
+
+  app.post('/api/signals/evaluate', async (req, res) => {
+    try {
+      const { symbol, exchange = 'BINANCE', timeframe = '1h' } = req.body;
+      if (!symbol) return res.status(400).json({ error: 'symbol is required' });
+      const detail = await marketDataService.getCoinDetail(symbol, timeframe, exchange);
+      if (!detail.coin) return res.status(404).json({ error: 'Asset not found on exchange' });
+      const sig = signalEngine.evaluateSignal(detail.coin, { [timeframe]: detail.candles }, null, true);
+      res.json(sig);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/signals/tests/run', (req, res) => {
+    try {
+      const results = SignalEngineTestRunner.runAllTests();
+      res.json({
+        totalTests: results.length,
+        passedCount: results.filter(r => r.passed).length,
+        failedCount: results.filter(r => !r.passed).length,
+        allPassed: results.every(r => r.passed),
         results
       });
     } catch (err: any) {

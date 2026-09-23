@@ -24,6 +24,7 @@ import { MarketSentimentIndex } from './MarketSentimentIndex';
 
 export type NavTab =
   | 'score'
+  | 'signals'
   | 'crash_risk'
   | 'derivatives'
   | 'structure'
@@ -210,6 +211,22 @@ export const MarketHeader: React.FC<MarketHeaderProps> = ({
           >
             <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
             <span>SCORE</span>
+          </button>
+
+          {/* SIGNALS Tab (Phase 7) */}
+          <button
+            onClick={() => setActiveTab('signals')}
+            className={`px-3 py-1.5 rounded-lg flex items-center space-x-1.5 font-bold transition-all ${
+              activeTab === 'signals'
+                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm shadow-amber-500/10'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+            <span>SIGNALS</span>
+            <span className="text-[9px] px-1 py-0.2 rounded bg-amber-950 text-amber-300 border border-amber-700/50">
+              P7
+            </span>
           </button>
 
           {/* CRASH RISK Tab */}

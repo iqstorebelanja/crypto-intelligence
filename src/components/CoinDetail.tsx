@@ -14,6 +14,7 @@ import {
   Percent,
   RefreshCw,
   ShieldAlert,
+  Sparkles,
   Star,
   TrendingDown,
   TrendingUp,
@@ -74,7 +75,7 @@ export const CoinDetail: React.FC<CoinDetailProps> = ({
   });
   const [isLoadingTimeframe, setIsLoadingTimeframe] = useState(false);
   const [chartMode, setChartMode] = useState<'area' | 'candles'>('area');
-  const [activeTab, setActiveTab] = useState<'chart' | 'derivatives' | 'structure' | 'scoring_breakdown'>('chart');
+  const [activeTab, setActiveTab] = useState<'chart' | 'signals' | 'derivatives' | 'structure' | 'scoring_breakdown'>('chart');
   const [isNotFound, setIsNotFound] = useState(false);
   const [isPercentageAlertModalOpen, setIsPercentageAlertModalOpen] = useState(false);
   const [coinAlerts, setCoinAlerts] = useState<Alert[]>([]);
@@ -569,10 +570,10 @@ export const CoinDetail: React.FC<CoinDetailProps> = ({
         </div>
 
         {/* View Tabs Selector */}
-        <div className="px-4 py-2 bg-[#080d16] border-b border-[#141e30] flex items-center space-x-2 text-xs">
+        <div className="px-4 py-2 bg-[#080d16] border-b border-[#141e30] flex items-center space-x-2 text-xs overflow-x-auto no-scrollbar">
           <button
             onClick={() => setActiveTab('chart')}
-            className={`px-3 py-1.5 rounded-lg font-bold transition-all ${
+            className={`px-3 py-1.5 rounded-lg font-bold transition-all whitespace-nowrap ${
               activeTab === 'chart'
                 ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
                 : 'text-slate-400 hover:text-white'
@@ -581,8 +582,23 @@ export const CoinDetail: React.FC<CoinDetailProps> = ({
             Price & Volume Chart
           </button>
           <button
+            onClick={() => setActiveTab('signals')}
+            className={`px-3 py-1.5 rounded-lg font-bold transition-all whitespace-nowrap flex items-center space-x-1.5 ${
+              activeTab === 'signals'
+                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <span>Signal Intelligence</span>
+            {coinData.signal && (
+              <span className="text-[9px] px-1 py-0.2 rounded bg-amber-950 text-amber-300 border border-amber-700 font-bold">
+                {coinData.signal.strength}
+              </span>
+            )}
+          </button>
+          <button
             onClick={() => setActiveTab('derivatives')}
-            className={`px-3 py-1.5 rounded-lg font-bold transition-all ${
+            className={`px-3 py-1.5 rounded-lg font-bold transition-all whitespace-nowrap ${
               activeTab === 'derivatives'
                 ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40'
                 : 'text-slate-400 hover:text-white'
@@ -771,6 +787,156 @@ export const CoinDetail: React.FC<CoinDetailProps> = ({
                   </div>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* TAB: SIGNAL INTELLIGENCE (Phase 7) */}
+          {activeTab === 'signals' && (
+            <div className="space-y-4">
+              {coinData.signal ? (
+                <div className="space-y-4">
+                  {/* Top Signal Card */}
+                  <div className="p-4 bg-[#0b121f] border border-[#1c2940] rounded-2xl space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#182338] pb-3">
+                      <div className="flex items-center space-x-2">
+                        <Sparkles className="w-5 h-5 text-amber-400" />
+                        <span className="font-bold text-base text-white">
+                          {coinData.signal.signalType.replace('_', ' ')}
+                        </span>
+                        <span
+                          className={`text-xs px-2 py-0.5 rounded font-bold uppercase border ${
+                            coinData.signal.direction === 'BULLISH'
+                              ? 'bg-emerald-950 text-emerald-300 border-emerald-600/50'
+                              : coinData.signal.direction === 'BEARISH'
+                              ? 'bg-rose-950 text-rose-300 border-rose-600/50'
+                              : 'bg-slate-800 text-slate-300 border-slate-600/50'
+                          }`}
+                        >
+                          {coinData.signal.direction}
+                        </span>
+                      </div>
+                      <div className="text-xs text-slate-400">
+                        Lifecycle: <strong className="text-white">{coinData.signal.status}</strong> •
+                        Exchange Feed: <strong className="text-cyan-300">{coinData.exchange}</strong>
+                      </div>
+                    </div>
+
+                    {/* Stats Gauges */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                      <div className="p-3 bg-[#080d16] border border-[#162135] rounded-xl space-y-1">
+                        <div className="text-[10px] uppercase text-slate-400">Signal Strength</div>
+                        <div className="text-xl font-bold text-amber-400">{coinData.signal.strength} / 100</div>
+                      </div>
+                      <div className="p-3 bg-[#080d16] border border-[#162135] rounded-xl space-y-1">
+                        <div className="text-[10px] uppercase text-slate-400">Trigger Price</div>
+                        <div className="text-xl font-bold text-white">
+                          ${(coinData.signal.triggerPrice ?? coinData.price).toLocaleString()}
+                        </div>
+                      </div>
+                      <div className="p-3 bg-[#080d16] border border-[#162135] rounded-xl space-y-1">
+                        <div className="text-[10px] uppercase text-slate-400">Invalidation Level</div>
+                        <div className="text-xl font-bold text-rose-400">
+                          {coinData.signal.invalidationPrice ? `$${coinData.signal.invalidationPrice.toLocaleString()}` : 'Dynamic'}
+                        </div>
+                      </div>
+                      <div className="p-3 bg-[#080d16] border border-[#162135] rounded-xl space-y-1">
+                        <div className="text-[10px] uppercase text-slate-400">Engine Confidence</div>
+                        <div className="text-xl font-bold text-cyan-400">{coinData.signal.confidence} / 100</div>
+                      </div>
+                    </div>
+
+                    {/* Invalidation Reason Notice */}
+                    {coinData.signal.invalidationReason && (
+                      <div className="p-3 bg-rose-950/20 border border-rose-800/40 rounded-xl text-rose-300 text-xs flex items-start space-x-2">
+                        <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <strong className="text-rose-200">Invalidation Condition:</strong> {coinData.signal.invalidationReason}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Multi-Timeframe Alignment */}
+                  {coinData.signal.multiTimeframeSummary && (
+                    <div className="p-4 bg-[#0b121f] border border-[#1c2940] rounded-2xl space-y-3">
+                      <div className="flex items-center justify-between text-xs font-bold text-white border-b border-[#182338] pb-2">
+                        <div className="flex items-center space-x-2">
+                          <Layers className="w-4 h-4 text-purple-400" />
+                          <span>MULTI-TIMEFRAME ALIGNMENT CONFLUENCE</span>
+                        </div>
+                        <div className="text-purple-300">
+                          Score: {coinData.signal.multiTimeframeSummary.alignmentScore} / 100
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-5 gap-2 text-center text-xs">
+                        {(['5m', '15m', '1h', '4h', '1D'] as const).map(tf => {
+                          const tfData = coinData.signal?.multiTimeframeSummary?.timeframes?.[tf] || coinData.signal?.timeframeAnalysis?.[tf];
+                          const bias = tfData?.bias || 'Neutral';
+                          const isBull = bias === 'Bullish' || (bias as string) === 'BULLISH';
+                          const isBear = bias === 'Bearish' || (bias as string) === 'BEARISH';
+                          return (
+                            <div key={tf} className="p-2.5 bg-[#080d16] border border-[#162135] rounded-xl space-y-1">
+                              <div className="font-bold text-white text-[11px]">{tf}</div>
+                              <div className="text-base font-bold">
+                                {isBull ? <span className="text-emerald-400">↑</span> : isBear ? <span className="text-rose-400">↓</span> : <span className="text-slate-500">→</span>}
+                              </div>
+                              <div className={`text-[10px] font-semibold ${isBull ? 'text-emerald-400' : isBear ? 'text-rose-400' : 'text-slate-400'}`}>
+                                {bias}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div className="text-xs text-slate-400">
+                        {coinData.signal.multiTimeframeSummary.summaryText}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Evidence Cards */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="p-4 bg-[#0b121f] border border-emerald-900/40 rounded-2xl space-y-2">
+                      <div className="text-xs font-bold text-emerald-400 uppercase flex items-center space-x-1.5">
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>Supporting Analytical Evidence</span>
+                      </div>
+                      <div className="space-y-1.5 text-xs text-slate-300">
+                        {coinData.signal.supportingFactors.map((f, i) => (
+                          <div key={i} className="flex items-start space-x-2">
+                            <span className="text-emerald-400 font-bold">✓</span>
+                            <span>{f}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="p-4 bg-[#0b121f] border border-amber-900/40 rounded-2xl space-y-2">
+                      <div className="text-xs font-bold text-amber-400 uppercase flex items-center space-x-1.5">
+                        <AlertTriangle className="w-4 h-4" />
+                        <span>Conflicting Evidence & Headwinds</span>
+                      </div>
+                      <div className="space-y-1.5 text-xs text-slate-400">
+                        {coinData.signal.conflictingFactors.map((c, i) => (
+                          <div key={i} className="flex items-start space-x-2">
+                            <span className="text-amber-400 font-bold">⚠</span>
+                            <span>{c}</span>
+                          </div>
+                        ))}
+                        {coinData.signal.conflictingFactors.length === 0 && (
+                          <div className="text-slate-500">No major conflicting signals detected.</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-8 bg-[#0b121f] border border-[#1c2940] rounded-2xl text-center text-slate-400 text-xs space-y-2">
+                  <div className="text-white font-bold">No active signal currently active for this pair</div>
+                  <p className="text-slate-500">Signal thresholds require confluence and volume confirmation.</p>
+                </div>
+              )}
             </div>
           )}
 

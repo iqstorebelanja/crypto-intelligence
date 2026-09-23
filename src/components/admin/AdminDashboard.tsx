@@ -26,10 +26,12 @@ import { AdminUserManagement } from './AdminUserManagement';
 import { AdminLogsAudit } from './AdminLogsAudit';
 import { AdminValidationLab } from './AdminValidationLab';
 import { AdminMarketDataEngine } from './AdminMarketDataEngine';
+import { AdminSignalEngine } from './AdminSignalEngine';
 
 export type AdminTab =
   | 'health'
   | 'market-engine'
+  | 'signal-engine'
   | 'scoring'
   | 'validation'
   | 'scanner'
@@ -172,6 +174,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </button>
 
         <button
+          onClick={() => setActiveTab('signal-engine')}
+          className={`px-3 py-2 rounded-lg font-bold flex items-center space-x-1.5 transition-all shrink-0 ${
+            activeTab === 'signal-engine'
+              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm shadow-amber-500/10'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+          }`}
+        >
+          <Cpu className="w-3.5 h-3.5 text-amber-400" />
+          <span className="flex items-center gap-1.5">
+            Signal Intelligence Engine
+            <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-950 text-amber-300 border border-amber-700/50 font-bold">
+              P7
+            </span>
+          </span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('scoring')}
           className={`px-3 py-2 rounded-lg font-bold flex items-center space-x-1.5 transition-all shrink-0 ${
             activeTab === 'scoring'
@@ -264,6 +283,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* Render Active Submodule */}
       {activeTab === 'health' && <AdminSystemHealth token={token} />}
       {activeTab === 'market-engine' && <AdminMarketDataEngine token={token} />}
+      {activeTab === 'signal-engine' && <AdminSignalEngine token={token} />}
       {activeTab === 'scoring' && <AdminScoringConfig token={token} />}
       {activeTab === 'validation' && <AdminValidationLab token={token} />}
       {activeTab === 'scanner' && <AdminScannerSymbols token={token} />}

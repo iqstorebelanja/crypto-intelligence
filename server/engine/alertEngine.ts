@@ -202,6 +202,70 @@ export class AlertEngine {
             conditionDescription = `Funding rate flipped negative to ${(fundingRate * 100).toFixed(4)}% (Short bias)`;
           }
           break;
+
+        case 'SIGNAL_BULLISH_CONFIRMED':
+          if (coin.signal?.direction === 'BULLISH' && (coin.signal.status === 'CONFIRMED' || coin.signal.status === 'ACTIVE')) {
+            isTriggered = true;
+            triggerValue = coin.signal.strength;
+            conditionDescription = `Bullish Signal Confirmed: ${coin.signal.signalType} (Strength: ${coin.signal.strength}/100, MTF Confluent)`;
+          }
+          break;
+
+        case 'SIGNAL_BEARISH_CONFIRMED':
+          if (coin.signal?.direction === 'BEARISH' && (coin.signal.status === 'CONFIRMED' || coin.signal.status === 'ACTIVE')) {
+            isTriggered = true;
+            triggerValue = coin.signal.strength;
+            conditionDescription = `Bearish Signal Confirmed: ${coin.signal.signalType} (Strength: ${coin.signal.strength}/100, Downside Risk: ${coin.signal.downsideRiskStrength}/100)`;
+          }
+          break;
+
+        case 'SIGNAL_STRENGTH_ABOVE':
+          if ((coin.signal?.strength ?? 0) >= (target || 70)) {
+            isTriggered = true;
+            triggerValue = coin.signal?.strength ?? 0;
+            conditionDescription = `Signal Strength reached ${triggerValue}/100 (Threshold: >= ${target || 70}) for ${coin.signal?.signalType || 'Signal'}`;
+          }
+          break;
+
+        case 'SIGNAL_BREAKOUT_CONFIRMED':
+          if (coin.signal?.signalType === 'BULLISH_BREAKOUT' || coin.signal?.breakoutContext?.state === 'BREAKOUT CONFIRMED') {
+            isTriggered = true;
+            triggerValue = coin.price;
+            conditionDescription = `Breakout Confirmed: ${coin.signal?.breakoutContext?.description || `Price confirmed breakout above $${coin.marketStructure.lastSwingHigh}`}`;
+          }
+          break;
+
+        case 'SIGNAL_BREAKDOWN_CONFIRMED':
+          if (coin.signal?.signalType === 'BEARISH_BREAKDOWN') {
+            isTriggered = true;
+            triggerValue = coin.price;
+            conditionDescription = `Breakdown Confirmed: Price pierced below support at $${coin.marketStructure.lastSwingLow} with downside momentum`;
+          }
+          break;
+
+        case 'SIGNAL_MTF_ALIGNED':
+          if (coin.signal?.multiTimeframeSummary?.isConfluent) {
+            isTriggered = true;
+            triggerValue = coin.signal.multiTimeframeSummary.alignmentScore;
+            conditionDescription = `Multi-Timeframe Alignment: ${coin.signal.multiTimeframeSummary.summaryText} (Score: ${triggerValue}/100)`;
+          }
+          break;
+
+        case 'SIGNAL_INVALIDATED':
+          if (coin.signal?.status === 'INVALIDATED') {
+            isTriggered = true;
+            triggerValue = coin.price;
+            conditionDescription = `Signal Invalidated: ${coin.signal.invalidationReason || 'Price crossed invalidation boundary'}`;
+          }
+          break;
+
+        case 'SIGNAL_RISK_ELEVATED':
+          if ((coin.signal?.downsideRiskStrength ?? coin.scores.downsideRiskScore) >= (target || 65)) {
+            isTriggered = true;
+            triggerValue = coin.signal?.downsideRiskStrength ?? coin.scores.downsideRiskScore;
+            conditionDescription = `Elevated Downside Risk: Downside signal strength elevated to ${triggerValue}/100 (Threshold: >= ${target || 65})`;
+          }
+          break;
       }
 
       if (isTriggered) {

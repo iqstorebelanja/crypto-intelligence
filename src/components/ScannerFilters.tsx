@@ -21,7 +21,8 @@ export interface ScannerFilterState {
   aboveMa20: boolean;
   aboveMa50: boolean;
   aboveMa200: boolean;
-  sortBy: 'bullScore' | 'downsideRisk' | 'volumeRatio' | 'rsi14' | 'change24h' | 'volume24h' | 'price';
+  signalFilter?: 'ALL' | 'BULLISH' | 'BEARISH' | 'CONFIRMED' | 'ACTIVE' | 'CONFLUENT' | 'BREAKOUT' | 'BREAKDOWN' | 'REVERSAL' | 'CONTINUATION';
+  sortBy: 'strength' | 'bullScore' | 'downsideRisk' | 'mtfConfluence' | 'volumeRatio' | 'oiChange' | 'funding' | 'rsi14' | 'change24h' | 'volume24h' | 'price';
   sortOrder: 'desc' | 'asc';
 }
 
@@ -147,9 +148,13 @@ export const ScannerFilters: React.FC<ScannerFiltersProps> = ({
             onChange={e => onChange({ ...filters, sortBy: e.target.value as any })}
             className="bg-[#080d16] border border-[#1b253b] rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500"
           >
+            <option value="strength">Signal Strength</option>
             <option value="bullScore">Bull Score</option>
             <option value="downsideRisk">Downside Risk</option>
-            <option value="volumeRatio">Volume Ratio</option>
+            <option value="mtfConfluence">MTF Confluence</option>
+            <option value="volumeRatio">Volume Spike (Ratio)</option>
+            <option value="oiChange">OI Change (24h)</option>
+            <option value="funding">Funding Rate</option>
             <option value="rsi14">RSI 14</option>
             <option value="change24h">24h Change</option>
             <option value="price">Spot Price</option>
@@ -229,6 +234,44 @@ export const ScannerFilters: React.FC<ScannerFiltersProps> = ({
             </button>
           </div>
         )}
+      </div>
+
+      {/* Signal Intelligence Filter Chips (Phase 7) */}
+      <div className="flex flex-wrap items-center gap-1.5 text-[11px] pt-1 border-t border-[#141e30]">
+        <span className="text-amber-400 font-bold uppercase text-[10px] mr-1 flex items-center">
+          <Sparkles className="w-3 h-3 mr-1" />
+          Signals:
+        </span>
+
+        {[
+          ['ALL', 'All Signals'],
+          ['BULLISH', 'Bullish Only'],
+          ['BEARISH', 'Bearish Only'],
+          ['CONFIRMED', 'Confirmed Only'],
+          ['ACTIVE', 'Active Only'],
+          ['CONFLUENT', 'Strong Confluence'],
+          ['BREAKOUT', 'Breakout'],
+          ['BREAKDOWN', 'Breakdown'],
+          ['REVERSAL', 'Reversal'],
+          ['CONTINUATION', 'Continuation']
+        ].map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() =>
+              onChange({
+                ...filters,
+                signalFilter: filters.signalFilter === key ? 'ALL' : (key as any)
+              })
+            }
+            className={`px-2 py-0.5 rounded-lg border transition-all ${
+              filters.signalFilter === key
+                ? 'bg-amber-950/80 border-amber-500/60 text-amber-300 font-bold'
+                : 'bg-[#080d16] border-[#182338] text-slate-400 hover:text-amber-300'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       {/* Quick Filter Presets Chips */}

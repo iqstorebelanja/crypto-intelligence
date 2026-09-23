@@ -54,13 +54,13 @@ export const ScannerTable: React.FC<ScannerTableProps> = ({
               <th className="py-3 px-3">Trading Pair</th>
               <th className="py-3 px-3 text-right">Price</th>
               <th className="py-3 px-3 text-right">24h Change</th>
-              <th className="py-3 px-3 text-right">24h Vol</th>
+              <th className="py-3 px-3 text-left">Signal</th>
+              <th className="py-3 px-3 text-center">Strength</th>
+              <th className="py-3 px-3 text-center">MTF</th>
               <th className="py-3 px-3 text-center">Vol Ratio</th>
-              <th className="py-3 px-3 text-center">RSI (14)</th>
-              <th className="py-3 px-3 text-center">MA Alignment</th>
+              <th className="py-3 px-3 text-center">RSI</th>
               <th className="py-3 px-3 text-center">Bull Score</th>
               <th className="py-3 px-3 text-center">Downside Risk</th>
-              <th className="py-3 px-3 text-center">Signal</th>
               <th className="py-3 px-3 text-right">Data Age</th>
               <th className="py-3 px-2 w-6"></th>
             </tr>
@@ -142,9 +142,80 @@ export const ScannerTable: React.FC<ScannerTableProps> = ({
                     {coin.change24h.toFixed(2)}%
                   </td>
 
-                  {/* 24h Volume */}
-                  <td className="py-2.5 px-3 text-right text-slate-300">
-                    {volDisplay}
+                  {/* Signal */}
+                  <td className="py-2.5 px-3 text-left">
+                    {coin.signal ? (
+                      <span
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
+                          coin.signal.direction === 'BULLISH'
+                            ? 'bg-emerald-950/80 text-emerald-300 border-emerald-600/40'
+                            : coin.signal.direction === 'BEARISH'
+                            ? 'bg-rose-950/80 text-rose-300 border-rose-600/40'
+                            : 'bg-slate-800 text-slate-300 border-slate-600/40'
+                        }`}
+                      >
+                        {coin.signal.signalType.replace('_', ' ')}
+                      </span>
+                    ) : (
+                      <SignalBadge signal={coin.scores.signal} />
+                    )}
+                  </td>
+
+                  {/* Strength */}
+                  <td className="py-2.5 px-3 text-center font-bold">
+                    {coin.signal ? (
+                      <span
+                        className={`text-xs ${
+                          coin.signal.strength >= 70
+                            ? 'text-emerald-400'
+                            : coin.signal.strength >= 50
+                            ? 'text-cyan-400'
+                            : 'text-amber-400'
+                        }`}
+                      >
+                        {coin.signal.strength}
+                      </span>
+                    ) : (
+                      <span className="text-slate-500">-</span>
+                    )}
+                  </td>
+
+                  {/* MTF Confluence */}
+                  <td className="py-2.5 px-3 text-center">
+                    {coin.signal?.multiTimeframeSummary ? (
+                      <div
+                        className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded bg-[#080d16] border border-[#1b263b] text-[10px]"
+                        title={coin.signal.multiTimeframeSummary.summaryText}
+                      >
+                        {(['5m', '15m', '1h', '4h', '1D'] as const).map(tf => {
+                          const tfBias =
+                            coin.signal?.multiTimeframeSummary?.timeframes?.[tf]?.bias ||
+                            coin.signal?.timeframeAnalysis?.[tf]?.bias ||
+                            (coin.signal?.multiTimeframeSummary?.bullishTimeframes.includes(tf)
+                              ? 'BULLISH'
+                              : coin.signal?.multiTimeframeSummary?.bearishTimeframes.includes(tf)
+                              ? 'BEARISH'
+                              : 'NEUTRAL');
+                          return (
+                            <span
+                              key={tf}
+                              title={tf}
+                              className={
+                                tfBias === 'BULLISH'
+                                  ? 'text-emerald-400'
+                                  : tfBias === 'BEARISH'
+                                  ? 'text-rose-400'
+                                  : 'text-slate-500'
+                              }
+                            >
+                              {tfBias === 'BULLISH' ? '↑' : tfBias === 'BEARISH' ? '↓' : '→'}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <span className="text-slate-500 text-[10px]">--</span>
+                    )}
                   </td>
 
                   {/* Vol Ratio vs 20MA */}
@@ -167,30 +238,6 @@ export const ScannerTable: React.FC<ScannerTableProps> = ({
                     {rsi}
                   </td>
 
-                  {/* MA Alignment */}
-                  <td className="py-2.5 px-3 text-center">
-                    <div className="inline-flex items-center space-x-1 text-[10px]">
-                      <span
-                        title="Price vs MA20"
-                        className={`px-1 rounded ${coin.indicators.priceVsMa20 === 'above' ? 'bg-emerald-950 text-emerald-400' : 'bg-rose-950 text-rose-400'}`}
-                      >
-                        20
-                      </span>
-                      <span
-                        title="Price vs MA50"
-                        className={`px-1 rounded ${coin.indicators.priceVsMa50 === 'above' ? 'bg-emerald-950 text-emerald-400' : 'bg-rose-950 text-rose-400'}`}
-                      >
-                        50
-                      </span>
-                      <span
-                        title="Price vs MA200"
-                        className={`px-1 rounded ${coin.indicators.priceVsMa200 === 'above' ? 'bg-emerald-950 text-emerald-400' : 'bg-rose-950 text-rose-400'}`}
-                      >
-                        200
-                      </span>
-                    </div>
-                  </td>
-
                   {/* Bull Score */}
                   <td className="py-2.5 px-3 text-center">
                     <ScoreBadge score={coin.scores.bullScore} classification={coin.scores.bullClassification} />
@@ -199,11 +246,6 @@ export const ScannerTable: React.FC<ScannerTableProps> = ({
                   {/* Downside Risk */}
                   <td className="py-2.5 px-3 text-center">
                     <RiskBadge score={coin.scores.downsideRiskScore} classification={coin.scores.downsideRiskClassification} />
-                  </td>
-
-                  {/* Signal */}
-                  <td className="py-2.5 px-3 text-center">
-                    <SignalBadge signal={coin.scores.signal} />
                   </td>
 
                   {/* Freshness */}
@@ -278,8 +320,24 @@ export const ScannerTable: React.FC<ScannerTableProps> = ({
                   <RiskBadge score={coin.scores.downsideRiskScore} compact />
                 </div>
                 <div>
-                  <div className="text-[9px] uppercase text-slate-500 mb-0.5">Signal</div>
-                  <SignalBadge signal={coin.scores.signal} />
+                  <div className="text-[9px] uppercase text-slate-500 mb-0.5">
+                    {coin.signal ? `Signal (${coin.signal.strength})` : 'Signal'}
+                  </div>
+                  {coin.signal ? (
+                    <span
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                        coin.signal.direction === 'BULLISH'
+                          ? 'bg-emerald-950 text-emerald-300'
+                          : coin.signal.direction === 'BEARISH'
+                          ? 'bg-rose-950 text-rose-300'
+                          : 'bg-slate-800 text-slate-300'
+                      }`}
+                    >
+                      {coin.signal.signalType.replace('_', ' ')}
+                    </span>
+                  ) : (
+                    <SignalBadge signal={coin.scores.signal} />
+                  )}
                 </div>
               </div>
 

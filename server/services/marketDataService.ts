@@ -8,6 +8,10 @@ import { derivativesEngine } from '../engine/derivativesEngine';
 import { analyzeMarketStructure } from '../engine/marketStructure';
 import { scoringEngine } from '../engine/scoringEngine';
 import { computeTechnicalIndicators } from '../engine/technicalIndicators';
+import { signalEngine } from '../engine/signalEngine';
+import { orderFlowEngine } from '../engine/orderFlowEngine';
+import { liquidationEngine } from '../engine/liquidationEngine';
+import { whaleProviderManager } from '../adapters/whaleProvider';
 import { db } from '../db/schema';
 import { assetRegistryService } from './assetRegistryService';
 import { exchangeCapabilityRegistry } from './capabilityRegistry';
@@ -208,6 +212,20 @@ export class MarketDataService {
           })
         );
         normalizedCoins.push(...processed);
+      }
+
+      // Enrich all scanned coins with Signal Intelligence Engine signals
+      const btcCoin = normalizedCoins.find(
+        c => c.symbol.toUpperCase().includes('BTC/USDT') || c.symbol.toUpperCase().includes('BTCUSDT')
+      );
+      for (const coin of normalizedCoins) {
+        try {
+          const sig = signalEngine.evaluateSignal(coin, undefined, btcCoin, true);
+          coin.signal = sig;
+          coin.multiTimeframeSummary = sig.multiTimeframeSummary;
+        } catch {
+          // Keep resilient
+        }
       }
 
       this.exchangeCache.set(normEx, { coins: normalizedCoins, timestamp: now });
@@ -540,14 +558,15 @@ export class MarketDataService {
     const hasDerivatives = exchangeCapabilityRegistry.supports(normExchange, 'openInterest') ||
                            exchangeCapabilityRegistry.supports(normExchange, 'funding');
 
-    const [ticker, candlesResult, dailyCandles, oiSnap, fundingSnap, lsSnap, liqSnap] = await Promise.all([
+    const [ticker, candlesResult, dailyCandles, oiSnap, fundingSnap, lsSnap, liqSnap, orderBookSnap] = await Promise.all([
       adapter.getTicker(cleanRaw),
       MarketDataPipeline.getNormalizedCandles(cleanRaw, normExchange, timeframe, 80),
       adapter.getOHLCV(cleanRaw, '1D', 10),
       hasDerivatives && typeof adapter.getOpenInterest === 'function' ? adapter.getOpenInterest(cleanRaw) : Promise.resolve(null),
       hasDerivatives && typeof adapter.getFundingRate === 'function' ? adapter.getFundingRate(cleanRaw) : Promise.resolve(null),
       hasDerivatives && typeof adapter.getLongShortRatio === 'function' ? adapter.getLongShortRatio(cleanRaw) : Promise.resolve(null),
-      hasDerivatives && typeof adapter.getLiquidations === 'function' ? adapter.getLiquidations(cleanRaw) : Promise.resolve(null)
+      hasDerivatives && typeof adapter.getLiquidations === 'function' ? adapter.getLiquidations(cleanRaw) : Promise.resolve(null),
+      typeof adapter.getOrderBook === 'function' ? adapter.getOrderBook(cleanRaw) : Promise.resolve(null)
     ]);
 
     const candles = candlesResult.confirmedCandles.length >= 5
@@ -680,6 +699,15 @@ export class MarketDataService {
       history7d,
       crossExchangeMarkets
     };
+
+    // Calculate real-time market signal using timeframe candles
+    try {
+      const sig = signalEngine.evaluateSignal(coin, { [timeframe]: candles }, null, true);
+      coin.signal = sig;
+      coin.multiTimeframeSummary = sig.multiTimeframeSummary;
+    } catch {
+      // Keep resilient
+    }
 
     return {
       coin,

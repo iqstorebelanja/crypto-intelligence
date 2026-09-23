@@ -422,6 +422,11 @@ export interface NormalizedCoinData {
   marketStructure: MarketStructure;
   derivatives: DerivativesData | null;
   history7d?: PriceHistoryPoint[];
+  signal?: MarketSignal;
+  multiTimeframeSummary?: MultiTimeframeConfluenceSummary;
+  orderFlow?: OrderFlowSnapshot | null;
+  liquidationIntel?: LiquidationIntelligenceSnapshot | null;
+  whaleTransfers?: WhaleTransfer[];
   crossExchangeMarkets?: {
     exchange: ExchangeId;
     exchangeSymbol: string;
@@ -549,7 +554,25 @@ export type AlertConditionType =
   | 'BREAKDOWN_DETECTED'
   | 'RETEST_DETECTED'
   | 'OI_SPIKE'
-  | 'FUNDING_FLIP';
+  | 'FUNDING_FLIP'
+  | 'SIGNAL_BULLISH_CONFIRMED'
+  | 'SIGNAL_BEARISH_CONFIRMED'
+  | 'SIGNAL_STRENGTH_ABOVE'
+  | 'SIGNAL_BREAKOUT_CONFIRMED'
+  | 'SIGNAL_BREAKDOWN_CONFIRMED'
+  | 'SIGNAL_MTF_ALIGNED'
+  | 'SIGNAL_INVALIDATED'
+  | 'SIGNAL_RISK_ELEVATED'
+  | 'WHALE_TRANSFER'
+  | 'EXCHANGE_DEPOSIT'
+  | 'EXCHANGE_WITHDRAWAL'
+  | 'LARGE_TRADE'
+  | 'BUYING_PRESSURE'
+  | 'SELLING_PRESSURE'
+  | 'CVD_DIVERGENCE'
+  | 'ORDER_BOOK_IMBALANCE'
+  | 'LIQUIDATION_SPIKE'
+  | 'LIQUIDATION_CLUSTER';
 
 export interface Alert {
   id: string;
@@ -573,6 +596,8 @@ export interface Alert {
   cooldownMinutes?: number;
   notes?: string;
   note?: string;
+  chain?: string;
+  transactionHash?: string;
   createdAt: number;
   updatedAt: number;
   triggered?: boolean;
@@ -592,6 +617,8 @@ export interface AlertEvent {
   actualValue: number | string;
   threshold: number | string;
   triggerPrice?: number;
+  chain?: string;
+  transactionHash?: string;
   message: string;
   read: boolean;
   status?: 'TRIGGERED' | 'SENT' | 'ACKNOWLEDGED' | 'DISMISSED';
@@ -678,6 +705,229 @@ export interface WhaleActivitySummary {
   accumulationSignals?: number;
   distributionSignals?: number;
   transactions?: WhaleTransaction[];
+  dataQuality?: DataQualityScore;
+  whaleActivityScore?: number | null; // 0-100 or null if unavailable
+  accumulationContext?: 'POSSIBLE_ACCUMULATION_CONTEXT' | 'POSSIBLE_DISTRIBUTION_CONTEXT' | 'NEUTRAL' | 'UNKNOWN';
+}
+
+// ==========================================
+// PHASE 8: WHALE, ORDER FLOW & LIQUIDATION INTELLIGENCE TYPES
+// ==========================================
+export type DataQualityScore = 'HIGH' | 'MEDIUM' | 'LOW' | 'UNAVAILABLE';
+
+export type WhaleTransferDirection =
+  | 'WALLET_TO_WALLET'
+  | 'WALLET_TO_EXCHANGE'
+  | 'EXCHANGE_TO_WALLET'
+  | 'EXCHANGE_TO_EXCHANGE'
+  | 'UNKNOWN';
+
+export type WhaleTransferClassification =
+  | 'LARGE_TRANSFER'
+  | 'EXCHANGE_DEPOSIT'
+  | 'EXCHANGE_WITHDRAWAL'
+  | 'UNKNOWN';
+
+export interface WhaleEntity {
+  type: 'EXCHANGE' | 'WALLET' | 'UNKNOWN';
+  name: string;
+}
+
+export interface WhaleTransfer {
+  id: string;
+  asset: string;
+  chain: string;
+  exchange?: string;
+  amount: number;
+  usdValue: number;
+  direction: WhaleTransferDirection;
+  eventType: WhaleTransferClassification;
+  sourceAddress?: string;
+  destinationAddress?: string;
+  sourceEntity?: WhaleEntity;
+  destinationEntity?: WhaleEntity;
+  transactionHash?: string;
+  timestamp: number;
+  provider: string;
+  confidence: number; // 0-100
+  dataQuality: DataQualityScore;
+  analyticalContext: 'POSSIBLE_ACCUMULATION_CONTEXT' | 'POSSIBLE_DISTRIBUTION_CONTEXT' | 'NEUTRAL_TRANSFER' | 'UNKNOWN';
+  analyticalNotes: string;
+}
+
+export type ProviderStatusType = 'LIVE' | 'DEGRADED' | 'STALE' | 'UNAVAILABLE' | 'ERROR';
+
+export interface WhaleProviderHealth {
+  provider: string;
+  status: ProviderStatusType;
+  lastUpdate: number;
+  latencyMs: number;
+  errorRate: number;
+  eventsPerMin: number;
+  coverage: string;
+  supportedChains: string[];
+  supportedAssets: string[];
+}
+
+export interface WhaleProviderCapabilities {
+  transfers: boolean;
+  exchangeWallets: boolean;
+  largeTransfers: boolean;
+  addressLabels: boolean;
+  historicalData: boolean;
+  realtimeData: boolean;
+}
+
+export interface WhaleQueryParams {
+  asset?: string;
+  chain?: string;
+  exchange?: string;
+  minUsd?: number;
+  limit?: number;
+  direction?: WhaleTransferDirection | 'all';
+  eventType?: WhaleTransferClassification | 'all';
+  timeframeHours?: number;
+}
+
+// --- Order Flow Engine Types ---
+export type AggressivePressureState = 'BUYING_PRESSURE' | 'SELLING_PRESSURE' | 'BALANCED' | 'UNKNOWN';
+export type OrderBookImbalanceState = 'BUY_SIDE_DEPTH_IMBALANCE' | 'SELL_SIDE_DEPTH_IMBALANCE' | 'BALANCED' | 'UNKNOWN';
+export type OrderFlowDivergenceType = 'POSSIBLE_BULLISH_ORDER_FLOW_DIVERGENCE' | 'POSSIBLE_BEARISH_ORDER_FLOW_DIVERGENCE' | 'NONE';
+
+export interface LargeTrade {
+  tradeId: string;
+  exchange: ExchangeId;
+  symbol: string;
+  marketType: 'SPOT' | 'PERPETUAL' | 'FUTURES';
+  price: number;
+  quantity: number;
+  notional: number;
+  side: 'BUY' | 'SELL' | 'UNKNOWN';
+  classification: 'LARGE_BUY' | 'LARGE_SELL' | 'LARGE_TRADE_UNKNOWN';
+  timestamp: number;
+  source: string;
+  dataQuality: DataQualityScore;
+}
+
+export interface CvdPoint {
+  timestamp: number;
+  buyVolume: number;
+  sellVolume: number;
+  delta: number;
+  cumulativeDelta: number;
+}
+
+export interface OrderBookDepthSnapshot {
+  bidDepthUsd: number;
+  askDepthUsd: number;
+  imbalanceRatio: number; // -1 to +1
+  state: OrderBookImbalanceState;
+  spreadUsd: number;
+  spreadBps: number;
+  timestamp: number;
+  disclaimer: string;
+}
+
+export interface OrderFlowSnapshot {
+  symbol: string;
+  exchange: ExchangeId;
+  timeframe: Timeframe;
+  timestamp: number;
+  dataQuality: DataQualityScore;
+  aggressiveBuyVolume: number;
+  aggressiveSellVolume: number;
+  netAggressiveVolume: number;
+  buySellRatio: number;
+  pressureState: AggressivePressureState;
+  orderBookImbalance: OrderBookDepthSnapshot | null;
+  cvd: {
+    timeframes: Record<Timeframe, { delta: number; cumulativeDelta: number; available: boolean }>;
+    points?: CvdPoint[];
+    currentDelta: number;
+    currentCvd: number;
+    isAvailable: boolean;
+  };
+  divergence: {
+    detected: boolean;
+    type: OrderFlowDivergenceType;
+    confidence: number;
+    description: string;
+  };
+  largeTrades: LargeTrade[];
+  orderFlowScore: number; // -100 to +100
+}
+
+// --- Liquidation Engine Types ---
+export interface LiquidationEvent {
+  id: string;
+  exchange: ExchangeId;
+  symbol: string;
+  marketType: 'PERPETUAL' | 'FUTURES';
+  timestamp: number;
+  side: 'LONG_LIQUIDATION' | 'SHORT_LIQUIDATION' | 'UNKNOWN_LIQUIDATION';
+  price: number;
+  quantity: number;
+  notionalUsd: number;
+  source: string;
+}
+
+export interface LiquidationCluster {
+  priceRange: [number, number];
+  medianPrice: number;
+  longLiquidationEstimate: number;
+  shortLiquidationEstimate: number;
+  totalLiquidation: number;
+  intensity: 'HIGH' | 'MEDIUM' | 'LOW';
+  timestamp: number;
+  source: string;
+}
+
+export interface LiquidationIntelligenceSnapshot {
+  symbol: string;
+  exchange: ExchangeId;
+  timestamp: number;
+  dataQuality: DataQualityScore;
+  currentPeriodLiquidationUsd: number;
+  baseline20PeriodAvgUsd: number;
+  spikeMultiple: number;
+  isSpike: boolean;
+  spikeStatus: 'ELEVATED LIQUIDATION ACTIVITY' | 'NORMAL';
+  longLiquidations24h: number;
+  shortLiquidations24h: number;
+  totalLiquidations24h: number;
+  context: {
+    relation:
+      | 'ELEVATED_LONG_SIDE_LIQUIDATION_CONTEXT'
+      | 'ELEVATED_SHORT_SIDE_LIQUIDATION_CONTEXT'
+      | 'SHORT_SQUEEZE_CONTEXT'
+      | 'LONG_SQUEEZE_DELEVERAGING_CONTEXT'
+      | 'BALANCED_LIQUIDATIONS'
+      | 'INSUFFICIENT_DATA';
+    description: string;
+  };
+  clusters: LiquidationCluster[];
+  recentEvents: LiquidationEvent[];
+  liquidationActivityScore: number; // 0-100
+}
+
+export interface WhaleOrderFlowAdminConfig {
+  version: number;
+  updatedAt: number;
+  updatedBy: string;
+  minWhaleUsd: number;
+  largeTradeMinUsd: number;
+  liquidationSpikeThresholdMultiple: number;
+  orderBookDepthPercent: number;
+  cvdWindowPeriods: number;
+  eventRetentionHours: number;
+  dataQualityThreshold: DataQualityScore;
+  orderFlowScoreWeights: {
+    cvdTrend: number;
+    aggressiveVolume: number;
+    orderBookImbalance: number;
+    largeTrades: number;
+  };
+  enabledProviders: string[];
 }
 
 // ==========================================
@@ -756,6 +1006,20 @@ export interface StructuredAIAnalysis {
       openInterest: number;
       funding: number;
     };
+  };
+  signalEngine?: {
+    currentSignal: SignalType;
+    signalDirection: SignalDirection;
+    signalStrength: number;
+    signalStatus: SignalLifecycleStatus;
+    confidence: number;
+    triggerPrice?: number;
+    confirmationPrice?: number;
+    invalidationPrice?: number;
+    invalidationReason?: string;
+    multiTimeframeSummary?: MultiTimeframeConfluenceSummary;
+    supportingEvidence: string[];
+    conflictingEvidence: string[];
   };
   why: string;
   bullishFactors: string[];
@@ -1164,6 +1428,285 @@ export interface ValidationRunResponse {
   marketStructureResults: MarketStructureValidationResult[];
   recentSnapshots: HistoricalSignalSnapshot[];
   customFilterStats?: StatisticalSummary | null;
+}
+
+// ==========================================
+// PHASE 7 — SIGNAL INTELLIGENCE ENGINE TYPES
+// ==========================================
+
+export type BullishSignalType =
+  | 'BULLISH_REVERSAL'
+  | 'BULLISH_CONTINUATION'
+  | 'BULLISH_BREAKOUT'
+  | 'BULLISH_RETEST'
+  | 'BULLISH_MOMENTUM';
+
+export type BearishSignalType =
+  | 'BEARISH_REVERSAL'
+  | 'BEARISH_CONTINUATION'
+  | 'BEARISH_BREAKDOWN'
+  | 'BEARISH_RETEST_FAILURE'
+  | 'BEARISH_MOMENTUM';
+
+export type NeutralSignalType =
+  | 'NEUTRAL'
+  | 'CONFLICTED'
+  | 'WATCH_BREAKOUT'
+  | 'WATCH_BREAKDOWN';
+
+export type SignalType = BullishSignalType | BearishSignalType | NeutralSignalType;
+
+export type SignalDirection = 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+
+export type SignalLifecycleStatus =
+  | 'FORMING'
+  | 'CONFIRMED'
+  | 'ACTIVE'
+  | 'INVALIDATED'
+  | 'EXPIRED';
+
+export type SignalEvidenceCategory =
+  | 'TREND'
+  | 'MOMENTUM'
+  | 'VOLUME'
+  | 'STRUCTURE'
+  | 'DERIVATIVES'
+  | 'VOLATILITY'
+  | 'BTC_CONTEXT'
+  | 'MULTI_TIMEFRAME'
+  | 'ORDER_FLOW'
+  | 'ON_CHAIN';
+
+export interface SignalEvidence {
+  category: SignalEvidenceCategory;
+  factor: string;
+  type: 'SUPPORTING' | 'CONFLICTING' | 'NEUTRAL';
+  description: string;
+  value?: any;
+  importance?: 'HIGH' | 'MEDIUM' | 'LOW';
+}
+
+export interface TimeframeSignalState {
+  timeframe: Timeframe;
+  direction: SignalDirection;
+  bias: 'Bullish' | 'Bearish' | 'Neutral' | 'Conflicted';
+  score: number; // 0-100
+  trend: string;
+  structure: string;
+  rsi: number;
+  rsiState: string;
+  volumeRatio: number;
+  volumeState: 'normal' | 'elevated' | 'high' | 'extreme';
+  bollingerState: string;
+  weight: number;
+}
+
+export interface MultiTimeframeConfluenceSummary {
+  alignedDirection: SignalDirection;
+  alignmentScore: number; // 0-100
+  bullishTimeframes: Timeframe[];
+  bearishTimeframes: Timeframe[];
+  neutralTimeframes: Timeframe[];
+  timeframes?: Record<Timeframe, TimeframeSignalState>;
+  isConfluent: boolean;
+  isConflicted: boolean;
+  summaryText: string;
+}
+
+export type BreakoutState =
+  | 'BREAKOUT FORMING'
+  | 'BREAKOUT CONFIRMED'
+  | 'BREAKOUT RETEST'
+  | 'BREAKOUT FAILED'
+  | 'POSSIBLE_FALSE_BREAKOUT'
+  | 'NONE';
+
+export interface BreakoutContext {
+  state: BreakoutState;
+  breakoutLevel: number;
+  direction: 'UP' | 'DOWN' | 'NONE';
+  candleCloseBeyond: boolean;
+  volumeConfirmed: boolean;
+  candleBodyStrength: number;
+  retestZone?: { min: number; max: number; level: number } | null;
+  description: string;
+}
+
+export type OiPriceDynamicContext =
+  | 'LONG_BUILDUP_CONTEXT'
+  | 'SHORT_COVERING_CONTEXT'
+  | 'SHORT_BUILDUP_CONTEXT'
+  | 'LONG_UNWINDING_CONTEXT'
+  | 'NEUTRAL_OR_NA';
+
+export type FundingCrowdingContext =
+  | 'neutral funding'
+  | 'bullish crowding risk'
+  | 'bearish crowding risk'
+  | 'extreme funding'
+  | 'N/A';
+
+export type LiquidationContext =
+  | 'long squeeze context'
+  | 'short squeeze context'
+  | 'liquidation spike'
+  | 'normal liquidation'
+  | 'N/A';
+
+export interface DerivativesSignalContext {
+  oiPriceContext: OiPriceDynamicContext;
+  fundingContext: FundingCrowdingContext;
+  liquidationContext: LiquidationContext;
+  openInterestAvailable: boolean;
+  fundingRate: number | null;
+  openInterestChangePct: number | null;
+}
+
+export interface BtcSignalContext {
+  trend: 'Bullish' | 'Bearish' | 'Neutral';
+  momentum: 'Strong' | 'Moderate' | 'Weak';
+  bullScore: number;
+  downsideRisk: number;
+  contextEffect: 'SUPPORTIVE' | 'HEADWIND' | 'NEUTRAL';
+  description: string;
+}
+
+export interface MarketSignal {
+  id: string;
+  exchange: ExchangeId;
+  marketId: string;
+  marketType: 'SPOT' | 'PERPETUAL' | 'FUTURES';
+  symbol: string;
+  timeframe: Timeframe;
+  signalType: SignalType;
+  direction: SignalDirection;
+  status: SignalLifecycleStatus;
+  strength: number; // 0-100
+  confidence: number; // 0-100 analytical confidence (NOT profit probability)
+  timestamp: number;
+  triggerPrice?: number;
+  confirmationPrice?: number;
+  invalidationPrice?: number;
+  invalidationReason?: string;
+  targetLevels?: number[];
+  evidence: SignalEvidence[];
+  supportingFactors: string[];
+  conflictingFactors: string[];
+  neutralFactors: string[];
+  timeframeAnalysis: Record<Timeframe, TimeframeSignalState>;
+  multiTimeframeSummary: MultiTimeframeConfluenceSummary;
+  breakoutContext?: BreakoutContext;
+  derivativesContext?: DerivativesSignalContext;
+  btcContext?: BtcSignalContext;
+  downsideRiskStrength: number; // 0-100
+  whaleContext?: {
+    score: number | null;
+    context: string;
+    transfersCount: number;
+    dataQuality: DataQualityScore;
+  };
+  orderFlowContext?: {
+    score: number;
+    pressure: AggressivePressureState;
+    cvdState: string;
+    divergence: OrderFlowDivergenceType;
+    dataQuality: DataQualityScore;
+  };
+  liquidationContext?: {
+    score: number;
+    isSpike: boolean;
+    status: string;
+    context: string;
+    dataQuality: DataQualityScore;
+  };
+  signalModelVersion?: string;
+  whaleModelVersion?: string;
+  orderFlowVersion?: string;
+  liquidationVersion?: string;
+  modelVersion: string;
+  engineVersion?: string;
+  indicatorVersion: number;
+  structureVersion: number;
+  weightConfigVersion: number;
+  expiresAt?: number;
+  notes?: string;
+}
+
+export interface SignalEngineAdminConfig {
+  version: number;
+  updatedAt: number;
+  updatedBy: string;
+  timeframeWeights: Record<Timeframe, number>; // default 5m:10, 15m:15, 1h:25, 4h:30, 1D:20 (sum=100)
+  timeframeRoles: Record<Timeframe, string>;
+  componentWeights: {
+    trendAlignment: number;      // 15%
+    momentum: number;            // 10%
+    volumeConfirmation: number;  // 15%
+    marketStructure: number;     // 20%
+    derivatives: number;         // 15%
+    volatility: number;          // 5%
+    multiTimeframe: number;      // 15%
+    btcContext: number;          // 5%
+  }; // sum = 100
+  thresholds: {
+    bullishWeakMax: number;        // 30
+    neutralMax: number;            // 50
+    bullishPositiveMax: number;    // 70
+    bullishStrongMax: number;      // 85
+    volumeRatioElevated: number;   // 1.2
+    volumeRatioHigh: number;       // 1.8
+    volumeRatioExtreme: number;    // 2.5
+    rsiOverbought: number;         // 70
+    rsiOversold: number;           // 30
+    signalExpiryCandles: number;   // 20
+  };
+  invalidationRules: {
+    reversalTolerancePct: number;
+    breakoutCloseBackPct: number;
+  };
+}
+
+export interface SignalEngineConfigHistoryItem {
+  version: number;
+  updatedAt: number;
+  updatedBy: string;
+  oldConfig: Partial<SignalEngineAdminConfig>;
+  newConfig: Partial<SignalEngineAdminConfig>;
+}
+
+export interface SignalQualityStats {
+  totalSignals: number;
+  totalSignalsGenerated?: number;
+  confirmedCount: number;
+  confirmedRate?: number;
+  invalidatedCount: number;
+  invalidatedRate?: number;
+  expiredCount: number;
+  activeCount: number;
+  activeSignalsCount?: number;
+  formingCount: number;
+  bullishCount: number;
+  bearishCount: number;
+  conflictedCount: number;
+  neutralCount: number;
+  averageStrength: number;
+  meanStrength?: number;
+  medianStrength?: number;
+  averageConfidence: number;
+  confluentSignalRate?: number;
+  avgConfluenceScore?: number;
+  historicalOutcomes: {
+    horizon: string;
+    meanReturn: number;
+    positiveOutcomePercent: number;
+    mfe: number;
+    mae: number;
+    sampleSize: number;
+    isSmallSample: boolean;
+  }[];
+  breakdownByExchange: Record<string, { total: number; avgStrength: number }>;
+  breakdownByTimeframe: Record<string, { total: number; avgStrength: number }>;
+  breakdownBySignalType: Record<string, { total: number; avgStrength: number }>;
 }
 
 

@@ -11,6 +11,7 @@ import { MarketOverview } from './components/MarketOverview';
 import { MarketStructureScanner } from './components/MarketStructureScanner';
 import { ScannerFilters, ScannerFilterState } from './components/ScannerFilters';
 import { ScannerTable } from './components/ScannerTable';
+import { SignalIntelligencePanel } from './components/SignalIntelligencePanel';
 import { WatchlistTable } from './components/WatchlistTable';
 import { WhaleScanner } from './components/WhaleScanner';
 import { AdminDashboard } from './components/admin/AdminDashboard';
@@ -33,12 +34,14 @@ const INITIAL_FILTERS: ScannerFilterState = {
   aboveMa20: false,
   aboveMa50: false,
   aboveMa200: false,
+  signalFilter: 'ALL',
   sortBy: 'bullScore',
   sortOrder: 'desc'
 };
 
 const TAB_ROUTES: Record<Exclude<NavTab, 'coin_detail'>, string> = {
   score: '/score',
+  signals: '/signals',
   crash_risk: '/crash-risk',
   derivatives: '/derivatives',
   structure: '/structure',
@@ -57,6 +60,7 @@ export default function App() {
   const activeTab: NavTab = useMemo(() => {
     const p = location.pathname;
     if (p.startsWith('/coin/')) return 'coin_detail';
+    if (p === '/signals') return 'signals';
     if (p === '/crash-risk' || p === '/crash_risk') return 'crash_risk';
     if (p === '/derivatives') return 'derivatives';
     if (p === '/structure') return 'structure';
@@ -353,8 +357,79 @@ export default function App() {
       result = result.filter(c => c.indicators.priceVsMa200 === 'above');
     }
 
+    // Signal Filters (Phase 7)
+    if (filters.signalFilter && filters.signalFilter !== 'ALL') {
+      switch (filters.signalFilter) {
+        case 'BULLISH':
+          result = result.filter(c => c.signal?.direction === 'BULLISH');
+          break;
+        case 'BEARISH':
+          result = result.filter(c => c.signal?.direction === 'BEARISH');
+          break;
+        case 'CONFIRMED':
+          result = result.filter(c => c.signal?.status === 'CONFIRMED');
+          break;
+        case 'ACTIVE':
+          result = result.filter(
+            c => c.signal?.status === 'ACTIVE' || c.signal?.status === 'CONFIRMED'
+          );
+          break;
+        case 'CONFLUENT':
+          result = result.filter(
+            c =>
+              Boolean(c.signal?.multiTimeframeSummary?.isConfluent) ||
+              (c.signal?.multiTimeframeSummary?.alignmentScore ?? 0) >= 65
+          );
+          break;
+        case 'BREAKOUT':
+          result = result.filter(
+            c =>
+              c.signal?.signalType === 'BULLISH_BREAKOUT' ||
+              c.signal?.breakoutContext?.state === 'BREAKOUT CONFIRMED'
+          );
+          break;
+        case 'BREAKDOWN':
+          result = result.filter(c => c.signal?.signalType === 'BEARISH_BREAKDOWN');
+          break;
+        case 'REVERSAL':
+          result = result.filter(
+            c =>
+              c.signal?.signalType === 'BULLISH_REVERSAL' ||
+              c.signal?.signalType === 'BEARISH_REVERSAL'
+          );
+          break;
+        case 'CONTINUATION':
+          result = result.filter(
+            c =>
+              c.signal?.signalType === 'BULLISH_CONTINUATION' ||
+              c.signal?.signalType === 'BEARISH_CONTINUATION'
+          );
+          break;
+      }
+    }
+
     const order = filters.sortOrder === 'asc' ? 1 : -1;
     result.sort((a, b) => {
+      if (filters.sortBy === 'strength') {
+        const sA = a.signal?.strength ?? 0;
+        const sB = b.signal?.strength ?? 0;
+        return (sA - sB) * order;
+      }
+      if (filters.sortBy === 'mtfConfluence') {
+        const cA = a.signal?.multiTimeframeSummary?.alignmentScore ?? 0;
+        const cB = b.signal?.multiTimeframeSummary?.alignmentScore ?? 0;
+        return (cA - cB) * order;
+      }
+      if (filters.sortBy === 'oiChange') {
+        const oiA = a.derivatives?.openInterestChange24h ?? 0;
+        const oiB = b.derivatives?.openInterestChange24h ?? 0;
+        return (oiA - oiB) * order;
+      }
+      if (filters.sortBy === 'funding') {
+        const fA = a.derivatives?.fundingRate ?? 0;
+        const fB = b.derivatives?.fundingRate ?? 0;
+        return (fA - fB) * order;
+      }
       if (filters.sortBy === 'bullScore') return (a.scores.bullScore - b.scores.bullScore) * order;
       if (filters.sortBy === 'downsideRisk') return (a.scores.downsideRiskScore - b.scores.downsideRiskScore) * order;
       if (filters.sortBy === 'volumeRatio') return (a.indicators.volumeAnalysis.ratio - b.indicators.volumeAnalysis.ratio) * order;
@@ -420,6 +495,21 @@ export default function App() {
                   />
                 </div>
               </div>
+            }
+          />
+
+          {/* Route: SIGNALS (Phase 7 Signal Intelligence) */}
+          <Route
+            path="/signals"
+            element={
+              <SignalIntelligencePanel
+                coins={coins}
+                watchlistSymbols={watchlistSymbols}
+                onToggleWatchlist={handleToggleWatchlist}
+                onSelectCoin={handleSelectCoin}
+                onRefresh={fetchMarketData}
+                isRefreshing={isRefreshing}
+              />
             }
           />
 
