@@ -2,10 +2,13 @@ import {
   Activity,
   Bell,
   Bot,
+  ChevronDown,
   Clock,
   Compass,
+  Globe,
   Layers,
   LogOut,
+  MessageSquare,
   Radio,
   RefreshCw,
   Shield,
@@ -15,12 +18,16 @@ import {
   Star,
   TrendingUp,
   User as UserIcon,
+  Users,
   Waves
 } from 'lucide-react';
 import React from 'react';
 import { DataFreshness, MarketStatus } from './Badges';
 import { ExchangeId, MarketOverview, NormalizedCoinData, User } from '../types';
 import { MarketSentimentIndex } from './MarketSentimentIndex';
+import { ThemeToggle } from './ThemeToggle';
+import { SearchableExchangeSelector } from './SearchableExchangeSelector';
+import { PWAInstallBanner } from './PWAInstallBanner';
 
 export type NavTab =
   | 'score'
@@ -30,11 +37,15 @@ export type NavTab =
   | 'structure'
   | 'watchlist'
   | 'alerts'
+  | 'notifications'
   | 'data_quality'
   | 'whales'
   | 'ai_trader'
+  | 'community'
   | 'coin_detail'
-  | 'admin';
+  | 'admin'
+  | 'account'
+  | 'pricing';
 
 interface MarketHeaderProps {
   activeTab: NavTab;
@@ -49,6 +60,7 @@ interface MarketHeaderProps {
   onRefresh: () => void;
   isRefreshing: boolean;
   unacknowledgedAlertsCount?: number;
+  onOpenFeedback?: () => void;
 }
 
 export const MarketHeader: React.FC<MarketHeaderProps> = ({
@@ -63,10 +75,11 @@ export const MarketHeader: React.FC<MarketHeaderProps> = ({
   onLogout,
   onRefresh,
   isRefreshing,
-  unacknowledgedAlertsCount = 0
+  unacknowledgedAlertsCount = 0,
+  onOpenFeedback
 }) => {
   return (
-    <header className="sticky top-0 z-40 bg-[#080d16]/95 backdrop-blur-md border-b border-[#182338]">
+    <header className="hidden lg:block sticky top-0 z-40 bg-[#080d16]/95 backdrop-blur-md border-b border-[#182338]">
       {/* Top Telemetry Strip */}
       <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-2 border-b border-[#121c2d] text-xs font-mono">
         <div className="flex items-center space-x-3">
@@ -84,60 +97,12 @@ export const MarketHeader: React.FC<MarketHeaderProps> = ({
             </span>
           </div>
 
-          {/* Exchange Selector Toggle */}
-          <div className="flex items-center bg-[#0d1424] border border-[#1d2b42] rounded-lg p-0.5 text-[11px] overflow-x-auto">
-            <button
-              onClick={() => setActiveExchange('ALL')}
-              className={`px-2 py-0.5 rounded-md font-bold transition-all whitespace-nowrap ${
-                activeExchange === 'ALL'
-                  ? 'bg-cyan-600 text-white shadow'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-              title="All Supported Exchanges (Binance + OKX + Pionex + Bybit)"
-            >
-              All Exchanges
-            </button>
-            <button
-              onClick={() => setActiveExchange('BINANCE')}
-              className={`px-2 py-0.5 rounded-md font-bold transition-all whitespace-nowrap ${
-                activeExchange === 'BINANCE'
-                  ? 'bg-cyan-600 text-white shadow'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Binance
-            </button>
-            <button
-              onClick={() => setActiveExchange('OKX')}
-              className={`px-2 py-0.5 rounded-md font-bold transition-all whitespace-nowrap ${
-                activeExchange === 'OKX'
-                  ? 'bg-cyan-600 text-white shadow'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              OKX
-            </button>
-            <button
-              onClick={() => setActiveExchange('PIONEX')}
-              className={`px-2 py-0.5 rounded-md font-bold transition-all whitespace-nowrap ${
-                activeExchange === 'PIONEX'
-                  ? 'bg-cyan-600 text-white shadow'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Pionex
-            </button>
-            <button
-              onClick={() => setActiveExchange('BYBIT')}
-              className={`px-2 py-0.5 rounded-md font-bold transition-all whitespace-nowrap ${
-                activeExchange === 'BYBIT'
-                  ? 'bg-cyan-600 text-white shadow'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Bybit
-            </button>
-          </div>
+          {/* Searchable Global Exchange / Broker Selector (Phase 11) */}
+          <SearchableExchangeSelector
+            activeExchange={activeExchange}
+            onSelectExchange={setActiveExchange}
+            variant="desktop"
+          />
 
           <div className="hidden lg:flex items-center space-x-2 text-slate-400">
             <MarketStatus
@@ -172,15 +137,100 @@ export const MarketHeader: React.FC<MarketHeaderProps> = ({
             <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-cyan-400' : ''}`} />
           </button>
 
-          {user ? (
-            <div className="flex items-center space-x-2 bg-[#0d1422] border border-[#1d2a42] rounded-lg px-2.5 py-1">
-              <UserIcon className="w-3.5 h-3.5 text-cyan-400" />
-              <span className="text-[11px] text-slate-300 max-w-[120px] truncate">
-                {user.name || user.email}
+          {/* Theme Toggle */}
+          <ThemeToggle variant="compact" className="p-1.5 !rounded-md" />
+
+          {/* PWA Install Button (Phase 23) */}
+          <PWAInstallBanner variant="button" />
+
+          {/* Section 5: Subtle Trial Status Banner */}
+          {user && user.trialStatus === 'ACTIVE' && user.trialEndsAt && user.trialEndsAt > Date.now() && (
+            <button
+              onClick={() => setActiveTab('account')}
+              className="hidden md:flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-gradient-to-r from-amber-500/10 via-amber-500/20 to-cyan-500/10 border border-amber-500/40 hover:border-amber-400 text-amber-300 hover:text-white text-[10px] font-mono font-bold transition-all shadow-sm cursor-pointer"
+              title="7-Day PRO Trial Active — Click for Entitlement Details"
+            >
+              <Sparkles className="w-3 h-3 text-amber-400 animate-pulse" />
+              <span>PRO TRIAL • {Math.max(1, Math.ceil((user.trialEndsAt - Date.now()) / 86400000))}d left</span>
+            </button>
+          )}
+
+          {user && (user.trialStatus === 'EXPIRED' || (!user.isPro && user.role !== 'admin' && user.trialStatus !== 'ACTIVE')) && (
+            <button
+              onClick={() => setActiveTab('account')}
+              className="hidden md:flex items-center space-x-1.5 px-2 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-slate-300 text-[10px] font-mono transition-all cursor-pointer"
+              title="Free Plan — Click to view Pro capabilities"
+            >
+              <span className="text-slate-400">FREE PLAN</span>
+              <span className="text-amber-400 font-bold">• Upgrade</span>
+            </button>
+          )}
+
+          {/* Header Bell Button with Unread Count Badge (Phase 17) */}
+          <button
+            type="button"
+            onClick={() => setActiveTab('notifications')}
+            className={`relative p-1.5 rounded-lg border transition-all ${
+              activeTab === 'notifications'
+                ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50 shadow-sm'
+                : 'bg-[#0d1422] border-[#1d2a42] text-slate-400 hover:text-white hover:border-slate-600'
+            }`}
+            title="Notification Center"
+            aria-label="Notification Center"
+          >
+            <Bell className="w-3.5 h-3.5" />
+            {unacknowledgedAlertsCount > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 px-1 min-w-[16px] h-4 rounded-full bg-rose-500 text-white font-mono font-bold text-[9px] flex items-center justify-center shadow-md shadow-rose-950 animate-pulse">
+                {unacknowledgedAlertsCount > 99 ? '99+' : unacknowledgedAlertsCount}
               </span>
+            )}
+          </button>
+
+          {user ? (
+            <div className="flex items-center space-x-1.5 bg-[#0d1422] border border-[#1d2a42] hover:border-cyan-500/50 rounded-lg p-1 pr-2 transition-all">
+              <button
+                onClick={() => setActiveTab('account')}
+                className="flex items-center space-x-2 text-left group"
+                title="Account Settings & Security"
+              >
+                {user.avatarUrl ? (
+                  <img
+                    src={user.avatarUrl}
+                    alt={user.name}
+                    className="w-5 h-5 rounded-full object-cover border border-cyan-500/40"
+                  />
+                ) : (
+                  <div className="w-5 h-5 rounded-full bg-cyan-950 border border-cyan-500/40 text-cyan-300 flex items-center justify-center text-[10px] font-bold">
+                    {user.name ? user.name.slice(0, 2).toUpperCase() : 'U'}
+                  </div>
+                )}
+                <div className="flex items-center space-x-1.5">
+                  <span className="text-[11px] text-slate-200 group-hover:text-cyan-300 max-w-[110px] truncate font-medium">
+                    {user.name || user.email}
+                  </span>
+                  <span className={`text-[9px] px-1 py-0.2 rounded font-mono font-bold ${
+                    user.role === 'admin'
+                      ? 'bg-amber-950 text-amber-300 border border-amber-600/50'
+                      : user.trialStatus === 'ACTIVE' && user.trialEndsAt && user.trialEndsAt > Date.now()
+                      ? 'bg-gradient-to-r from-amber-950 to-cyan-950 text-amber-300 border border-amber-500/60'
+                      : user.isPro || user.tier === 'PRO'
+                      ? 'bg-cyan-950 text-cyan-300 border border-cyan-600/50'
+                      : 'bg-slate-800 text-slate-400'
+                  }`}>
+                    {user.role === 'admin'
+                      ? 'ADMIN'
+                      : user.trialStatus === 'ACTIVE' && user.trialEndsAt && user.trialEndsAt > Date.now()
+                      ? 'PRO TRIAL'
+                      : user.isPro || user.tier === 'PRO'
+                      ? 'PRO'
+                      : 'FREE'}
+                  </span>
+                </div>
+              </button>
+              <div className="w-[1px] h-3.5 bg-[#1d2a42] mx-0.5" />
               <button
                 onClick={onLogout}
-                className="text-slate-500 hover:text-rose-400 pl-1"
+                className="text-slate-500 hover:text-rose-400 p-0.5 rounded transition-colors"
                 title="Logout"
               >
                 <LogOut className="w-3 h-3" />
@@ -342,6 +392,22 @@ export const MarketHeader: React.FC<MarketHeaderProps> = ({
             </span>
           </button>
 
+          {/* COMMUNITY Tab (Phase 9 PRO Exclusive) */}
+          <button
+            onClick={() => setActiveTab('community')}
+            className={`px-3 py-1.5 rounded-lg flex items-center space-x-1.5 font-bold transition-all ${
+              activeTab === 'community'
+                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm shadow-amber-500/10'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+            }`}
+          >
+            <Users className="w-3.5 h-3.5 text-amber-400" />
+            <span>COMMUNITY</span>
+            <span className="text-[9px] px-1 py-0.2 rounded bg-amber-950 text-amber-300 border border-amber-700/50 font-mono font-bold">
+              PRO
+            </span>
+          </button>
+
           {/* ADMIN Tab (Phase 4A) - Visible for all, fully enabled with RBAC enforcement */}
           <button
             onClick={() => setActiveTab('admin')}
@@ -359,6 +425,52 @@ export const MarketHeader: React.FC<MarketHeaderProps> = ({
               P4A
             </span>
           </button>
+          {/* ACCOUNT Tab (Phase 14) */}
+          <button
+            onClick={() => setActiveTab('account')}
+            className={`px-3 py-1.5 rounded-lg flex items-center space-x-1.5 font-bold transition-all ${
+              activeTab === 'account'
+                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm shadow-cyan-500/10'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+            }`}
+          >
+            <UserIcon className="w-3.5 h-3.5 text-cyan-400" />
+            <span>ACCOUNT</span>
+            <span className="text-[9px] px-1 py-0.2 rounded bg-cyan-950 text-cyan-300 border border-cyan-700/50">
+              P14
+            </span>
+          </button>
+
+          {/* PRICING Tab (Phase 16) */}
+          <button
+            onClick={() => setActiveTab('pricing')}
+            className={`px-3 py-1.5 rounded-lg flex items-center space-x-1.5 font-bold transition-all ${
+              activeTab === 'pricing'
+                ? 'bg-gradient-to-r from-amber-500/20 to-cyan-500/20 text-amber-300 border border-amber-500/40 shadow-sm shadow-amber-500/10'
+                : 'text-amber-400/90 hover:text-amber-300 hover:bg-amber-950/40'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+            <span>PRICING</span>
+            <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-400 text-slate-950 font-bold">
+              PRO
+            </span>
+          </button>
+
+          {/* FEEDBACK Button (Phase 28) */}
+          {onOpenFeedback && (
+            <button
+              onClick={onOpenFeedback}
+              className="px-3 py-1.5 rounded-lg flex items-center space-x-1.5 font-bold transition-all text-cyan-400/90 hover:text-cyan-300 hover:bg-cyan-950/40 border border-cyan-500/30"
+              title="Give product feedback or rate signal accuracy"
+            >
+              <MessageSquare className="w-3.5 h-3.5 text-cyan-400" />
+              <span>FEEDBACK</span>
+              <span className="text-[9px] px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-300 border border-cyan-700/50">
+                P28
+              </span>
+            </button>
+          )}
         </nav>
 
         {/* Regulatory disclaimer chip */}

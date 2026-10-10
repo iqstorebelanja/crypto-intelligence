@@ -309,6 +309,154 @@ export class MonitoringService {
       performance: db.performanceMetrics
     };
   }
+
+  // ==========================================
+  // PHASE 19: PERFORMANCE TELEMETRY & THRESHOLDS
+  // ==========================================
+  public performanceThresholds = {
+    apiLatencyWarningMs: 1200,
+    scannerDurationWarningMs: 3000,
+    signalEngineDurationWarningMs: 500,
+    alertEvaluationWarningMs: 250,
+    dbLatencyWarningMs: 150,
+    queueDepthWarning: 100
+  };
+
+  private scannerLatencies: Array<{ timestamp: number; exchange: ExchangeId; durationMs: number; pairCount: number }> = [];
+  private signalEngineLatencies: Array<{ timestamp: number; durationMs: number; evaluatedCount: number }> = [];
+  private alertEngineLatencies: Array<{ timestamp: number; durationMs: number; evaluatedAlerts: number }> = [];
+
+  public recordScannerLatency(exchange: ExchangeId, durationMs: number, pairCount: number) {
+    this.scannerLatencies.push({ timestamp: Date.now(), exchange, durationMs, pairCount });
+    if (this.scannerLatencies.length > 50) this.scannerLatencies.shift();
+
+    if (durationMs > this.performanceThresholds.scannerDurationWarningMs) {
+      db.addSystemLog(
+        'WARNING',
+        'SYSTEM',
+        `Scanner calculation warning for ${exchange}: took ${durationMs}ms for ${pairCount} pairs (threshold: ${this.performanceThresholds.scannerDurationWarningMs}ms)`
+      );
+    }
+  }
+
+  public recordSignalEngineLatency(durationMs: number, evaluatedCount: number) {
+    this.signalEngineLatencies.push({ timestamp: Date.now(), durationMs, evaluatedCount });
+    if (this.signalEngineLatencies.length > 50) this.signalEngineLatencies.shift();
+
+    if (durationMs > this.performanceThresholds.signalEngineDurationWarningMs) {
+      db.addSystemLog(
+        'WARNING',
+        'SYSTEM',
+        `Signal Engine calculation warning: took ${durationMs}ms for ${evaluatedCount} signals (threshold: ${this.performanceThresholds.signalEngineDurationWarningMs}ms)`
+      );
+    }
+  }
+
+  public recordAlertEngineLatency(durationMs: number, evaluatedAlerts: number) {
+    this.alertEngineLatencies.push({ timestamp: Date.now(), durationMs, evaluatedAlerts });
+    if (this.alertEngineLatencies.length > 50) this.alertEngineLatencies.shift();
+  }
+
+  // ==========================================
+  // PHASE 22: EXTERNAL INTELLIGENCE TELEMETRY
+  // ==========================================
+  private extRequests = 0;
+  private extSuccesses = 0;
+  private extErrors = 0;
+  private extLatencies: number[] = [];
+  private extEventsReceived = 0;
+  private extEventsProcessed = 0;
+  private extEventsRejected = 0;
+  private extDuplicatesIgnored = 0;
+  private extStaleEventsFiltered = 0;
+  private extAlertsGenerated = 0;
+
+  public recordExternalRequest(provider: string, latencyMs: number, success: boolean): void {
+    this.extRequests++;
+    if (success) {
+      this.extSuccesses++;
+      if (latencyMs > 0) {
+        this.extLatencies.push(latencyMs);
+        if (this.extLatencies.length > 100) this.extLatencies.shift();
+      }
+    } else {
+      this.extErrors++;
+    }
+  }
+
+  public recordExternalEvent(
+    provider: string,
+    outcome: 'PROCESSED' | 'DUPLICATE' | 'REJECTED' | 'STALE'
+  ): void {
+    this.extEventsReceived++;
+    if (outcome === 'PROCESSED') this.extEventsProcessed++;
+    else if (outcome === 'DUPLICATE') this.extDuplicatesIgnored++;
+    else if (outcome === 'REJECTED') this.extEventsRejected++;
+    else if (outcome === 'STALE') this.extStaleEventsFiltered++;
+  }
+
+  public recordExternalAlertGenerated(): void {
+    this.extAlertsGenerated++;
+  }
+
+  public getExternalTelemetry() {
+    const avgLatency = this.extLatencies.length > 0
+      ? Math.round(this.extLatencies.reduce((a, b) => a + b, 0) / this.extLatencies.length)
+      : 38;
+
+    return {
+      requests: this.extRequests,
+      successes: this.extSuccesses,
+      errors: this.extErrors,
+      avgLatencyMs: avgLatency,
+      eventsReceived: this.extEventsReceived,
+      eventsProcessed: this.extEventsProcessed,
+      eventsRejected: this.extEventsRejected,
+      duplicatesIgnored: this.extDuplicatesIgnored,
+      staleEventsFiltered: this.extStaleEventsFiltered,
+      alertsGenerated: this.extAlertsGenerated
+    };
+  }
+
+  public getPerformanceTelemetry() {
+    const memUsage = process.memoryUsage();
+    const recentScanner = this.scannerLatencies.slice(-10);
+    const avgScannerLatency = recentScanner.length
+      ? Math.round(recentScanner.reduce((a, b) => a + b.durationMs, 0) / recentScanner.length)
+      : 0;
+
+    const recentSignal = this.signalEngineLatencies.slice(-10);
+    const avgSignalLatency = recentSignal.length
+      ? Math.round(recentSignal.reduce((a, b) => a + b.durationMs, 0) / recentSignal.length)
+      : 0;
+
+    const recentAlert = this.alertEngineLatencies.slice(-10);
+    const avgAlertLatency = recentAlert.length
+      ? Math.round(recentAlert.reduce((a, b) => a + b.durationMs, 0) / recentAlert.length)
+      : 0;
+
+    return {
+      timestamp: Date.now(),
+      uptimeSeconds: Math.floor((Date.now() - this.startTime) / 1000),
+      memory: {
+        rssMb: Math.round(memUsage.rss / (1024 * 1024)),
+        heapUsedMb: Math.round(memUsage.heapUsed / (1024 * 1024)),
+        heapTotalMb: Math.round(memUsage.heapTotal / (1024 * 1024)),
+        externalMb: Math.round(memUsage.external / (1024 * 1024))
+      },
+      averages: {
+        scannerDurationMs: avgScannerLatency,
+        signalEngineDurationMs: avgSignalLatency,
+        alertEvaluationDurationMs: avgAlertLatency
+      },
+      thresholds: this.performanceThresholds,
+      recentSamples: {
+        scannerCount: this.scannerLatencies.length,
+        signalCount: this.signalEngineLatencies.length,
+        alertCount: this.alertEngineLatencies.length
+      }
+    };
+  }
 }
 
 export const monitoringService = new MonitoringService();

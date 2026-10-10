@@ -115,13 +115,43 @@ export interface AggregatedAssetView {
 }
 
 // Database Entities
+export interface UserDisplayPreferences {
+  theme?: 'dark' | 'light' | 'terminal';
+  defaultExchange?: string;
+  defaultTimeframe?: string;
+  compactView?: boolean;
+  soundAlerts?: boolean;
+}
+
 export interface User {
   id: string;
   email: string;
   name: string;
+  username?: string;
+  avatarUrl?: string | null;
   role: 'user' | 'admin';
+  isPro?: boolean;
+  tier?: 'FREE' | 'PRO' | 'ADMIN';
+  plan?: 'FREE' | 'PRO';
+  trialStatus?: 'ACTIVE' | 'EXPIRED' | 'NONE';
+  trialStartedAt?: number | null; // epoch timestamp ms in UTC
+  trialEndsAt?: number | null; // epoch timestamp ms in UTC
+  subscriptionStatus?: SubscriptionLifecycleState | 'TRIAL' | 'ACTIVE' | 'EXPIRED' | 'FREE';
+  subscriptionSource?: 'TRIAL' | 'PAYMENT' | 'ADMIN' | 'NONE';
+  currentSubscriptionId?: string | null;
+  isAdmin?: boolean;
+  proExpiresAt?: number | null; // epoch timestamp ms, or null if lifetime
+  // Future Payment / RevenueCat readiness (nullable, unpopulated until integration)
+  providerCustomerId?: string | null;
+  providerProductId?: string | null;
+  providerEntitlementId?: string | null;
+  providerSubscriptionId?: string | null;
   status?: 'ACTIVE' | 'DISABLED';
   lastLogin?: number;
+  emailVerified?: boolean;
+  twoFactorEnabled?: boolean;
+  usernameChangedAt?: number;
+  displayPreferences?: UserDisplayPreferences;
   createdAt: number;
 }
 
@@ -129,8 +159,24 @@ export interface Session {
   id: string;
   userId: string;
   token: string;
+  deviceName?: string;
+  browser?: string;
+  os?: string;
+  ipAddress?: string;
+  lastActiveAt?: number;
   expiresAt: number;
   createdAt: number;
+}
+
+export interface UserSessionView {
+  id: string;
+  deviceName: string;
+  browser: string;
+  os: string;
+  ipAddress: string;
+  lastActiveAt: number;
+  createdAt: number;
+  isCurrent: boolean;
 }
 
 export interface Exchange {
@@ -140,6 +186,21 @@ export interface Exchange {
   isHealthy: boolean;
   latencyMs: number;
   baseUrl: string;
+}
+
+export interface ExchangeRegistryItem {
+  id: ExchangeId;
+  name: string;
+  tag: string;
+  marketType: string;
+  isHealthy: boolean;
+  latencyMs: number;
+  pairsCount: number;
+  features: string[];
+  status: 'Operational' | 'Degraded' | 'Offline';
+  providerType?: 'Exchange' | 'Broker' | 'Aggregator';
+  description?: string;
+  isPopular?: boolean;
 }
 
 export interface TradingPair {
@@ -427,6 +488,7 @@ export interface NormalizedCoinData {
   orderFlow?: OrderFlowSnapshot | null;
   liquidationIntel?: LiquidationIntelligenceSnapshot | null;
   whaleTransfers?: WhaleTransfer[];
+  externalIntelligence?: ExternalIntelligenceSummary | null;
   crossExchangeMarkets?: {
     exchange: ExchangeId;
     exchangeSymbol: string;
@@ -434,6 +496,8 @@ export interface NormalizedCoinData {
     change24h: number;
     marketType: 'SPOT' | 'PERPETUAL' | 'FUTURES';
   }[];
+  isLocked?: boolean;
+  lockedReason?: string;
 }
 
 export interface BtcMarketCondition {
@@ -525,8 +589,38 @@ export interface WatchlistRecord {
 }
 
 // ==========================================
-// ALERTS & NOTIFICATIONS (Phase 2)
+// ALERTS & NOTIFICATIONS (Phase 2 & Phase 12 Unified Alert Engine)
 // ==========================================
+export type UnifiedAlertCategory =
+  | 'Bull Signal'
+  | 'Bearish Signal'
+  | 'Bull Score threshold'
+  | 'Downside Risk threshold'
+  | 'RSI'
+  | 'Volume Spike'
+  | 'Open Interest'
+  | 'Funding'
+  | 'Liquidation'
+  | 'Whale Activity'
+  | 'Large Exchange Deposit'
+  | 'Large Exchange Withdrawal'
+  | 'Breakout'
+  | 'Breakdown'
+  | 'Retest'
+  | 'Order Flow'
+  | 'CVD Divergence'
+  | 'Market Structure'
+  | 'BTC Market Condition'
+  | 'Data/Exchange health';
+
+export type AlertSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+export type AlertEventStatus = 'TRIGGERED' | 'SENT' | 'ACKNOWLEDGED' | 'DISMISSED';
+
+export interface AlertEvidenceItem {
+  label: string;
+  value: string | number;
+}
+
 export type AlertConditionType =
   | 'bullScore'
   | 'downsideRisk'
@@ -572,7 +666,12 @@ export type AlertConditionType =
   | 'CVD_DIVERGENCE'
   | 'ORDER_BOOK_IMBALANCE'
   | 'LIQUIDATION_SPIKE'
-  | 'LIQUIDATION_CLUSTER';
+  | 'LIQUIDATION_CLUSTER'
+  | 'LARGE_WHALE_TRANSFER'
+  | 'EXCHANGE_INFLOW_SPIKE'
+  | 'EXCHANGE_OUTFLOW_SPIKE'
+  | 'DEX_VOLUME_SPIKE'
+  | 'DEX_LIQUIDITY_CHANGE';
 
 export interface Alert {
   id: string;
@@ -606,34 +705,307 @@ export interface Alert {
 
 export interface AlertEvent {
   id: string;
-  alertId: string;
   userId: string;
-  triggeredAt: number;
+  category: UnifiedAlertCategory;
+  type: string;
+  severity: AlertSeverity;
+  exchange?: ExchangeId | string;
+  marketId?: string;
   symbol: string;
-  exchange?: ExchangeId;
-  condition: string;
+  timeframe?: string;
+  title: string;
+  message: string;
+  timestamp: number;
+  source: string;
+  status: AlertEventStatus;
+  read: boolean;
+  modelVersion?: string;
+
+  // Optional attributes
+  triggerValue?: number | string;
+  threshold?: number | string;
+  evidence?: AlertEvidenceItem[];
+  signalId?: string;
+  whaleEventId?: string;
+  liquidationEventId?: string;
+  orderFlowEventId?: string;
+
+  // Backward compatibility fields from Phase 2
+  alertId?: string;
+  triggeredAt?: number;
+  condition?: string;
   conditionType?: AlertConditionType;
   conditionDescription?: string;
-  actualValue: number | string;
-  threshold: number | string;
+  actualValue?: number | string;
   triggerPrice?: number;
   chain?: string;
   transactionHash?: string;
-  message: string;
-  read: boolean;
-  status?: 'TRIGGERED' | 'SENT' | 'ACKNOWLEDGED' | 'DISMISSED';
-  timestamp?: number;
 }
+
+export type UnifiedAlert = AlertEvent;
+
+export interface UserNotificationPreferences {
+  userId: string;
+  // Delivery channels
+  inAppEnabled: boolean;
+  soundEnabled: boolean;
+  soundVolume: number; // 0 - 100
+  soundChime: 'chime' | 'radar' | 'ping' | 'pulse';
+  browserPushEnabled: boolean;
+  telegramEnabled: boolean;
+  telegramChatId?: string;
+  telegramBotToken?: string;
+  webhookEnabled?: boolean;
+  webhookUrl?: string;
+
+  // Minimum severity threshold
+  minSeverity: AlertSeverity;
+
+  // Category toggles
+  categoryFilters: {
+    signals: boolean;      // Bull Signal, Bearish Signal, Breakout, Breakdown, Retest
+    whale: boolean;        // Whale Activity, Large Exchange Deposit, Large Exchange Withdrawal
+    risk: boolean;         // Downside Risk threshold, Liquidation, BTC Market Condition
+    technical: boolean;    // Bull Score, RSI, Volume Spike, Open Interest, Funding, Market Structure
+    orderFlow: boolean;    // Order Flow, CVD Divergence
+    health: boolean;       // Data/Exchange health
+  };
+
+  watchlistOnly: boolean;
+  quietHoursEnabled: boolean;
+  quietHoursStart: string; // '23:00'
+  quietHoursEnd: string;   // '07:00'
+  quietHoursTimezone?: string; // 'UTC'
+  cooldownMinutes: number; // e.g. 15
+  maxAlertsPerHour: number; // e.g. 30
+
+  // Phase 17 Normalized Preferences & Category Flags
+  pushEnabled?: boolean;
+  emailEnabled?: boolean;
+  emailAddress?: string;
+  fallbackChannels?: NotificationChannel[];
+  signalEnabled?: boolean;
+  priceEnabled?: boolean;
+  rsiEnabled?: boolean;
+  volumeEnabled?: boolean;
+  oiEnabled?: boolean;
+  fundingEnabled?: boolean;
+  whaleEnabled?: boolean;
+  orderFlowEnabled?: boolean;
+  liquidationEnabled?: boolean;
+  breakoutEnabled?: boolean;
+  breakdownEnabled?: boolean;
+  systemEnabled?: boolean;
+}
+
+export const DEFAULT_NOTIFICATION_PREFERENCES: UserNotificationPreferences = {
+  userId: '',
+  inAppEnabled: true,
+  soundEnabled: true,
+  soundVolume: 75,
+  soundChime: 'chime',
+  browserPushEnabled: false,
+  pushEnabled: false,
+  telegramEnabled: false,
+  telegramChatId: '',
+  telegramBotToken: '',
+  emailEnabled: false,
+  emailAddress: '',
+  webhookEnabled: false,
+  webhookUrl: '',
+  minSeverity: 'LOW',
+  categoryFilters: {
+    signals: true,
+    whale: true,
+    risk: true,
+    technical: true,
+    orderFlow: true,
+    health: true
+  },
+  watchlistOnly: false,
+  quietHoursEnabled: false,
+  quietHoursStart: '23:00',
+  quietHoursEnd: '07:00',
+  quietHoursTimezone: 'UTC',
+  cooldownMinutes: 15,
+  maxAlertsPerHour: 30,
+  signalEnabled: true,
+  priceEnabled: true,
+  rsiEnabled: true,
+  volumeEnabled: true,
+  oiEnabled: true,
+  fundingEnabled: true,
+  whaleEnabled: true,
+  orderFlowEnabled: true,
+  liquidationEnabled: true,
+  breakoutEnabled: true,
+  breakdownEnabled: true,
+  systemEnabled: true
+};
+
+// ==========================================
+// PHASE 17: NOTIFICATION & ALERT DELIVERY RELIABILITY ENGINE
+// ==========================================
+
+export type NotificationStatus =
+  | 'QUEUED'
+  | 'PROCESSING'
+  | 'DELIVERED'
+  | 'PARTIAL'
+  | 'FAILED'
+  | 'EXPIRED'
+  | 'CANCELLED';
+
+export type NotificationCategory =
+  | 'SIGNAL'
+  | 'PRICE'
+  | 'RSI'
+  | 'VOLUME'
+  | 'OI'
+  | 'FUNDING'
+  | 'WHALE'
+  | 'ORDER_FLOW'
+  | 'LIQUIDATION'
+  | 'BREAKOUT'
+  | 'BREAKDOWN'
+  | 'SYSTEM'
+  | 'SECURITY'
+  | 'SUBSCRIPTION';
+
+export type NotificationChannel = 'IN_APP' | 'WEB_PUSH' | 'TELEGRAM' | 'EMAIL';
+
+export type DeliveryAttemptStatus = 'PENDING' | 'SUCCESS' | 'FAILED' | 'RETRYING';
+
+export type DeliveryErrorClassification =
+  | 'TRANSIENT'
+  | 'PERMANENT'
+  | 'RATE_LIMIT'
+  | 'AUTHENTICATION'
+  | 'CONFIGURATION'
+  | 'PROVIDER_UNAVAILABLE';
+
+export interface DeliveryAttempt {
+  id: string;
+  notificationId: string;
+  userId: string;
+  channel: NotificationChannel;
+  provider: string;
+  attemptNumber: number;
+  status: DeliveryAttemptStatus;
+  queuedAt: number;
+  startedAt?: number;
+  completedAt?: number;
+  errorCode?: DeliveryErrorClassification | string;
+  errorMessage?: string;
+  providerMessageId?: string;
+  nextRetryAt?: number;
+}
+
+export interface AlertEventSnapshot {
+  signalVersion?: string;
+  modelVersion?: string;
+  exchange?: string;
+  symbol?: string;
+  timeframe?: string;
+  triggerPrice?: number;
+  indicatorSnapshot?: Record<string, any>;
+  structureSnapshot?: Record<string, any>;
+  scoreSnapshot?: Record<string, any>;
+  timestamp: number;
+}
+
+export type AlertDefinitionState =
+  | 'ACTIVE'
+  | 'PAUSED'
+  | 'TRIGGERED'
+  | 'COOLDOWN'
+  | 'EXPIRED'
+  | 'DISABLED';
 
 export interface Notification {
   id: string;
   userId: string;
-  channel: 'in_app' | 'browser' | 'telegram' | 'email';
+  type: string;
+  category: NotificationCategory | UnifiedAlertCategory;
   title: string;
   message: string;
+  symbol?: string;
+  exchange?: string;
+  marketType?: 'SPOT' | 'PERPETUAL' | 'FUTURES' | 'SWAP';
+  timeframe?: string;
+  direction?: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+  severity: AlertSeverity;
   createdAt: number;
+  expiresAt?: number;
+  source: string;
+  sourceId?: string;
+  dedupeKey: string;
+  status: NotificationStatus;
+  metadata?: Record<string, any>;
   read: boolean;
-  phase: 'Phase 2 Operational' | 'Phase 2/3 Feature';
+  deepLink?: string;
+  snapshot?: AlertEventSnapshot;
+
+  // Backward compatibility with Phase 2/3
+  channel?: 'in_app' | 'browser' | 'telegram' | 'email';
+  phase?: 'Phase 2 Operational' | 'Phase 2/3 Feature';
+}
+
+export interface WebPushSubscriptionRecord {
+  id: string;
+  userId: string;
+  endpoint: string;
+  keys: {
+    p256dh: string;
+    auth: string;
+  };
+  browserMetadata?: string;
+  createdAt: number;
+  lastSeenAt: number;
+  status: 'ACTIVE' | 'EXPIRED' | 'REVOKED';
+}
+
+export type ProviderHealthState =
+  | 'HEALTHY'
+  | 'CIRCUIT_OPEN'
+  | 'HALF_OPEN'
+  | 'DEGRADED'
+  | 'NOT_CONFIGURED'
+  | 'ERROR';
+
+export interface ChannelHealthMetric {
+  channel: NotificationChannel;
+  provider: string;
+  status: ProviderHealthState;
+  deliveredCount: number;
+  failedCount: number;
+  retryingCount: number;
+  lastDeliveredAt?: number | null;
+  lastFailureAt?: number | null;
+  lastError?: string | null;
+  circuitBreakerOpen: boolean;
+  circuitResetAt?: number | null;
+}
+
+export interface NotificationHealthSummary {
+  totalQueued: number;
+  processing: number;
+  delivered: number;
+  failed: number;
+  retrying: number;
+  expired: number;
+  queueDepth: number;
+  errorRate: number;
+  channels: Record<NotificationChannel, ChannelHealthMetric>;
+  lastEvaluatedAt: number;
+}
+
+export interface AlertLimitsConfig {
+  maxActiveAlerts: number;
+  maxAdvancedAlerts: number;
+  maxWhaleAlerts: number;
+  maxOrderFlowAlerts: number;
+  allowedChannels: NotificationChannel[];
 }
 
 export interface NotificationProvider {
@@ -789,7 +1161,45 @@ export interface WhaleQueryParams {
   timeframeHours?: number;
 }
 
+export interface WhaleProviderCapability {
+  providerId: string;
+  providerName: string;
+  supportedChains: string[];
+  features: {
+    transfers: boolean;
+    exchangeWallets: boolean;
+    largeTransfers: boolean;
+    addressLabels: boolean;
+    historical: boolean;
+    realtime: boolean;
+  };
+  status: 'CONNECTED' | 'DISCONNECTED';
+}
+
 // --- Order Flow Engine Types ---
+export interface RawTradeInput {
+  tradeId: string;
+  exchange: ExchangeId;
+  symbol: string;
+  marketType: 'SPOT' | 'PERPETUAL' | 'FUTURES';
+  price: number;
+  quantity: number;
+  side: 'BUY' | 'SELL' | 'UNKNOWN';
+  timestamp: number;
+  source: string;
+}
+
+export interface RawOrderBookLevel {
+  price: number;
+  quantity: number;
+}
+
+export interface RawOrderBookInput {
+  bids: RawOrderBookLevel[];
+  asks: RawOrderBookLevel[];
+  timestamp: number;
+}
+
 export type AggressivePressureState = 'BUYING_PRESSURE' | 'SELLING_PRESSURE' | 'BALANCED' | 'UNKNOWN';
 export type OrderBookImbalanceState = 'BUY_SIDE_DEPTH_IMBALANCE' | 'SELL_SIDE_DEPTH_IMBALANCE' | 'BALANCED' | 'UNKNOWN';
 export type OrderFlowDivergenceType = 'POSSIBLE_BULLISH_ORDER_FLOW_DIVERGENCE' | 'POSSIBLE_BEARISH_ORDER_FLOW_DIVERGENCE' | 'NONE';
@@ -1619,6 +2029,17 @@ export interface MarketSignal {
     context: string;
     dataQuality: DataQualityScore;
   };
+  externalContext?: {
+    whaleActivityScore: number;
+    dexActivityScore: number;
+    externalEvidenceScore: number;
+    flowRegime: string;
+    dominantDirection: ExternalEvidenceDirection;
+    evidenceCount: number;
+    freshness: ExternalIntelligenceStatus;
+    sourceQuality: ExternalSourceQuality;
+  };
+  externalIntelligence?: ExternalIntelligenceSummary | null;
   signalModelVersion?: string;
   whaleModelVersion?: string;
   orderFlowVersion?: string;
@@ -1630,6 +2051,8 @@ export interface MarketSignal {
   weightConfigVersion: number;
   expiresAt?: number;
   notes?: string;
+  isLocked?: boolean;
+  lockedReason?: string;
 }
 
 export interface SignalEngineAdminConfig {
@@ -1708,5 +2131,1327 @@ export interface SignalQualityStats {
   breakdownByTimeframe: Record<string, { total: number; avgStrength: number }>;
   breakdownBySignalType: Record<string, { total: number; avgStrength: number }>;
 }
+
+// ==========================================
+// PHASE 9: PRO COMMUNITY FORUM & MODERATION
+// ==========================================
+
+export type CommunityChannelId =
+  | 'general'
+  | 'bitcoin'
+  | 'ethereum'
+  | 'altcoins'
+  | 'technical-analysis'
+  | 'trading-setup'
+  | 'whale-watch'
+  | 'market-news'
+  | 'market-discussion'
+  | 'crypto-memes';
+
+export interface CommunityChannel {
+  id: CommunityChannelId;
+  name: string;
+  description: string;
+  icon: string;
+  isSlowMode?: boolean;
+  order: number;
+}
+
+export interface CommunityMessage {
+  id: string;
+  channelId: CommunityChannelId;
+  userId: string;
+  userName: string;
+  userRole: 'user' | 'admin';
+  userTier: 'PRO' | 'ADMIN';
+  content: string;
+  createdAt: number; // Unix ms
+  updatedAt?: number;
+  dayKeyUTC: string; // 'YYYY-MM-DD'
+  replyToId?: string;
+  replyToMessage?: {
+    id: string;
+    userName: string;
+    content: string;
+  };
+  stickerId?: string;
+  stickerUrl?: string;
+  reactions: Record<string, string[]>; // emoji -> array of userIds
+  mentions: string[];
+  isEdited?: boolean;
+  isDeleted?: boolean;
+  moderationStatus: 'SAFE' | 'FLAGGED' | 'HIDDEN' | 'UNDER_REVIEW';
+  moderationReason?: string;
+}
+
+export type ModerationCategory =
+  | 'SAFE'
+  | 'SPAM'
+  | 'ABUSIVE_LANGUAGE'
+  | 'HARASSMENT'
+  | 'SCAM'
+  | 'PHISHING'
+  | 'MALICIOUS_LINK'
+  | 'FLOOD'
+  | 'PROMOTION'
+  | 'OTHER';
+
+export type ModerationSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+
+export type ModerationAction =
+  | 'ALLOW'
+  | 'WARN'
+  | 'HIDE'
+  | 'MUTE'
+  | 'TEMP_BAN'
+  | 'ADMIN_REVIEW';
+
+export interface AIModerationResult {
+  category: ModerationCategory;
+  severity: ModerationSeverity;
+  confidence: number; // 0 - 100
+  reason: string;
+  recommendedAction: ModerationAction;
+  detectedBy: 'LOCAL_RULE_ENGINE' | 'AI_MODERATION_ASSISTANT';
+  timestamp: number;
+}
+
+export interface UserModerationStatus {
+  userId: string;
+  warningCount: number;
+  violationCount: number;
+  muteUntil: number | null; // ms timestamp or null
+  banUntil: number | null; // ms timestamp or null
+  status: 'ACTIVE' | 'WARNED' | 'MUTED' | 'BANNED';
+  lastViolationAt: number | null;
+  moderationScore: number; // 0 - 100
+  updatedAt: number;
+}
+
+export interface CommunityReport {
+  id: string;
+  messageId: string;
+  channelId: CommunityChannelId;
+  reportedUserId: string;
+  reportedByUserId: string;
+  reportedByUserName: string;
+  reason: 'Spam' | 'Scam' | 'Harassment' | 'Offensive language' | 'Malicious link' | 'Suspicious promotion' | 'Other';
+  details?: string;
+  createdAt: number;
+  status: 'PENDING' | 'DISMISSED' | 'ACTIONED';
+  messageSnippet: string;
+  aiModerationResult?: AIModerationResult;
+}
+
+export interface StickerItem {
+  id: string;
+  packId: string;
+  name: string;
+  emoji: string;
+  label: string;
+  svgIcon?: string;
+  active: boolean;
+  createdAt: number;
+}
+
+export interface StickerPack {
+  id: string;
+  name: string;
+  description: string;
+  stickers: StickerItem[];
+  active: boolean;
+}
+
+export interface CommunitySettings {
+  maxMessageLength: number;
+  rateLimitMsgsPerMin: number;
+  floodThresholdSeconds: number;
+  warningThreshold: number;
+  muteDurationMinutes: number;
+  tempBanDurationHours: number;
+  maxLinksPerMessage: number;
+  maxMentionsPerMessage: number;
+  aiModerationEnabled: boolean;
+  aiModerationThreshold: number; // confidence threshold
+  retentionHours: number; // 24h ephemeral
+}
+
+export interface DailyCleanupStatus {
+  lastCleanupAt: number | null;
+  lastCleanupDateUTC: string | null;
+  currentDayKey?: string;
+  status: 'SUCCESS' | 'RUNNING' | 'FAILED' | 'PENDING';
+  nextCleanupAt: number;
+  deletedMessagesCount: number;
+  errorMessage?: string | null;
+  retriedCount: number;
+}
+
+export type ModerationReport = CommunityReport;
+
+export interface TestResult {
+  name: string;
+  category?: string;
+  passed: boolean;
+  durationMs: number;
+  details: string;
+  error?: string;
+}
+
+export interface ModerationUsageMetrics {
+  moderationRequestsToday: number;
+  moderationTokensToday: number;
+  estimatedModerationCostUsd: number;
+  spamBlockedToday: number;
+  linksBlockedToday: number;
+  activeMutesCount: number;
+  activeBansCount: number;
+}
+
+export interface GlobalExchangeInfo {
+  id: ExchangeId;
+  name: string;
+  marketType: string;
+  isHealthy: boolean;
+  latencyMs: number;
+  pairsCount: number;
+  features: string[];
+  status: 'OPERATIONAL' | 'ACTIVE' | 'PARTIAL' | 'PLANNED';
+  isDefault?: boolean;
+}
+
+// ==========================================
+// PHASE 9B: REWARDED AD GATE & MONETIZATION
+// ==========================================
+
+export type RewardedAdSessionStatus =
+  | 'CREATED'
+  | 'AD_STARTED'
+  | 'REWARD_PENDING'
+  | 'REWARD_VERIFIED'
+  | 'AI_REQUEST_UNLOCKED'
+  | 'CONSUMED'
+  | 'EXPIRED'
+  | 'FAILED';
+
+export interface RewardedAdSession {
+  sessionId: string;
+  userId: string;
+  createdAt: number;
+  expiresAt: number;
+  status: RewardedAdSessionStatus;
+  provider: string;
+  rewardVerifiedAt?: number | null;
+  aiRequestId?: string | null;
+  consumedAt?: number | null;
+  verificationToken?: string;
+  adDurationSeconds: number;
+  failureReason?: string;
+}
+
+export interface RewardedAdConfig {
+  provider: string;
+  enabled: boolean;
+  testMode: boolean;
+  rewardVerificationRequired: boolean;
+  adDurationSeconds: number;
+  sessionExpirySeconds: number;
+  adAvailability: boolean;
+  maxRewardRetries: number;
+  duplicateDetection: boolean;
+  freeDailyQuota: number;
+  proDailyQuota: number;
+}
+
+export interface AIQuotaStatus {
+  userId: string;
+  tier: 'FREE' | 'PRO' | 'ADMIN';
+  isPro: boolean;
+  dailyLimit: number;
+  usedToday: number;
+  remainingQuota: number;
+  adRequired: boolean;
+  rewardedAdAvailable: boolean;
+  resetAt: number;
+}
+
+export interface AIMonetizationMetrics {
+  freeAiRequests: number;
+  proAiRequests: number;
+  rewardedAdAttempts: number;
+  rewardedAdCompletions: number;
+  rewardedAdFailures: number;
+  rewardVerificationFailures: number;
+  duplicateRewardAttempts: number;
+  expiredRewardSessions: number;
+  aiRequestsUnlockedByAds: number;
+  aiRequestFailuresAfterReward: number;
+  estimatedAdImpressions: number;
+  freeAiTokens: number;
+  proAiTokens: number;
+  freeEstimatedCostUsd: number;
+  proEstimatedCostUsd: number;
+  adRevenueStatus: string;
+}
+
+// ==========================================
+// PHASE 13: GLOBAL FOOTER AD SYSTEM & HOUSE ADS
+// ==========================================
+
+export type AdProviderType = 'HOUSE_ONLY' | 'EXTERNAL_ONLY' | 'HYBRID';
+
+export type AdProviderStatus =
+  | 'NOT_CONFIGURED'
+  | 'LOADING'
+  | 'READY'
+  | 'NO_FILL'
+  | 'ERROR'
+  | 'BLOCKED'
+  | 'DISABLED';
+
+export type HouseAdAudience = 'FREE' | 'PRO' | 'ALL';
+
+export type AdColorTheme = 'cyan' | 'amber' | 'emerald' | 'purple' | 'blue';
+
+export interface HouseAd {
+  id: string;
+  title: string;
+  description: string;
+  imageUrl?: string;
+  targetUrl: string;
+  ctaText: string;
+  active: boolean;
+  priority: number;
+  startAt?: number;
+  endAt?: number;
+  rotationEnabled: boolean;
+  targetAudience: HouseAdAudience;
+  exchange: 'ALL' | ExchangeId;
+  badge?: string;
+  colorTheme?: AdColorTheme;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ExternalAdProviderConfig {
+  name: string;
+  publisherId?: string;
+  slotIdDesktop?: string;
+  slotIdMobile?: string;
+  allowAutoRefresh: boolean;
+  refreshIntervalSeconds?: number;
+}
+
+export interface HouseAdRotationConfig {
+  enabled: boolean;
+  intervalSeconds: number; // default: 15
+  minIntervalSeconds: number; // default: 10
+  randomizeOrder: boolean;
+  pauseWhenHidden: boolean;
+}
+
+export interface AdPlacementConfig {
+  desktopFooter: boolean;
+  mobileFooter: boolean;
+  communityEnabled: boolean;
+  aiTraderGlobalFooter: boolean;
+}
+
+export interface GlobalAdConfig {
+  enabled: boolean;
+  providerType: AdProviderType;
+  externalProvider: ExternalAdProviderConfig;
+  houseAdRotation: HouseAdRotationConfig;
+  placements: AdPlacementConfig;
+  allowDismissal: boolean;
+  dismissSnoozeMinutes: number;
+}
+
+export interface AdAnalyticsEvent {
+  id: string;
+  creativeId: string;
+  type: 'IMPRESSION' | 'CLICK' | 'DISMISS';
+  provider: 'HOUSE' | 'EXTERNAL';
+  placement: 'DESKTOP_FOOTER' | 'MOBILE_FOOTER' | 'COMMUNITY' | 'GLOBAL_SHELL';
+  userTier: 'FREE' | 'PRO' | 'ANONYMOUS';
+  targetUrl?: string;
+  timestamp: number;
+}
+
+export interface CreativeAnalyticsMetric {
+  creativeId: string;
+  title: string;
+  impressions: number;
+  clicks: number;
+  ctr: number;
+}
+
+export interface AdAnalyticsSummary {
+  totalImpressions: number;
+  totalClicks: number;
+  overallCtr: number;
+  creativeMetrics: CreativeAnalyticsMetric[];
+  recentEvents: AdAnalyticsEvent[];
+}
+
+// ==========================================
+// PHASE 15: 7-DAY PRO TRIAL & FEATURE GATING TYPES
+// ==========================================
+
+export interface TrialAdminConfig {
+  enabled: boolean;
+  trialDurationDays: number;
+  freeAllowedSymbols: string[];
+  freeMaxWatchlist: number;
+  freeMaxAlerts: number;
+  freeScannerMaxPairs: number;
+  updatedAt?: number;
+  updatedBy?: string;
+}
+
+export interface UserTrialInfo {
+  plan: 'FREE' | 'PRO';
+  trialStatus: 'ACTIVE' | 'EXPIRED' | 'NONE';
+  trialStartedAt: number | null;
+  trialEndsAt: number | null;
+  remainingMs: number;
+  remainingDays: number;
+  remainingHours: number;
+  isTrialActive: boolean;
+  isExpired: boolean;
+  serverTime: number;
+}
+
+export type EntitlementAnalyticsEventType =
+  | 'TRIAL_STARTED'
+  | 'TRIAL_FEATURE_USED'
+  | 'TRIAL_EXPIRED'
+  | 'PRO_GATE_SHOWN'
+  | 'UPGRADE_CLICKED'
+  | 'AI_TRADER_USED'
+  | 'COMMUNITY_OPENED'
+  | 'SIGNAL_VIEWED'
+  | 'PREMIUM_SIGNAL_LOCKED'
+  | 'PRICING_VIEWED'
+  | 'PRO_GATE_VIEWED'
+  | 'PLAN_SELECTED'
+  | 'CHECKOUT_OPENED'
+  | 'CHECKOUT_CANCELLED';
+
+export interface EntitlementAnalyticsEvent {
+  id: string;
+  type: EntitlementAnalyticsEventType;
+  userId?: string;
+  userTier?: 'FREE' | 'PRO' | 'ADMIN';
+  symbol?: string;
+  exchange?: string;
+  feature?: string;
+  metadata?: Record<string, any>;
+  timestamp: number;
+}
+
+// ==========================================
+// PHASE 16: PRO UPGRADE / PRICING UX + SUBSCRIPTION ARCHITECTURE
+// ==========================================
+
+export type SubscriptionPlanId = 'FREE' | 'PRO_MONTHLY' | 'PRO_YEARLY';
+export type BillingPeriod = 'MONTHLY' | 'YEARLY' | 'LIFETIME' | 'FREE';
+
+export type NormalizedSubscriptionStatus =
+  | 'FREE'
+  | 'TRIAL'
+  | 'PRO_ACTIVE'
+  | 'PRO_CANCELLED'
+  | 'PRO_EXPIRED';
+
+// ==========================================
+// PHASE 26: SUBSCRIPTION LIFECYCLE & PAYMENT GATEWAY ARCHITECTURE
+// ==========================================
+
+export type SubscriptionLifecycleState =
+  | 'FREE'
+  | 'TRIAL'
+  | 'ACTIVE'
+  | 'PAST_DUE'
+  | 'CANCELED'
+  | 'EXPIRED'
+  | 'PAUSED'
+  | 'REFUNDED'
+  | 'PAYMENT_FAILED';
+
+export interface SubscriptionRecord {
+  id: string;
+  userId: string;
+  provider: string; // 'stripe' | 'web_payment' | 'admin' | 'mock'
+  providerCustomerId: string;
+  providerSubscriptionId: string;
+  productId: string;
+  planId: SubscriptionPlanId;
+  status: SubscriptionLifecycleState;
+  currency: string;
+  amount: number;
+  billingInterval: 'month' | 'year';
+  currentPeriodStart: number;
+  currentPeriodEnd: number;
+  trialStart?: number | null;
+  trialEnd?: number | null;
+  cancelAtPeriodEnd: boolean;
+  canceledAt?: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type NormalizedPaymentEventType =
+  | 'CHECKOUT_COMPLETED'
+  | 'SUBSCRIPTION_CREATED'
+  | 'SUBSCRIPTION_UPDATED'
+  | 'SUBSCRIPTION_RENEWED'
+  | 'SUBSCRIPTION_CANCELED'
+  | 'PAYMENT_SUCCEEDED'
+  | 'PAYMENT_FAILED'
+  | 'SUBSCRIPTION_PAST_DUE'
+  | 'REFUND'
+  | 'CHARGEBACK';
+
+export interface PaymentEvent {
+  provider: string;
+  eventId: string;
+  eventType: NormalizedPaymentEventType;
+  receivedAt: number;
+  processedAt: number | null;
+  status: 'PENDING' | 'PROCESSED' | 'FAILED' | 'IGNORED';
+  attempts: number;
+  userId?: string;
+  subscriptionId?: string;
+  error?: string;
+  payloadSummary?: string;
+}
+
+export interface SubscriptionPlanConfig {
+  planId: SubscriptionPlanId;
+  displayName: string;
+  billingPeriod: BillingPeriod;
+  price: number;
+  currency: string; // e.g. "USD", "EUR", "IDR"
+  locale?: string; // e.g. "en-US", "id-ID"
+  description: string;
+  features: string[];
+  isActive: boolean;
+  sortOrder: number;
+  savingsBadge?: string;
+  providerProductId?: string | null; // e.g. null until RevenueCat product ID configured
+  providerPackageId?: string | null; // e.g. null until RevenueCat package ID configured
+}
+
+export type SubscriptionHistoryEventType =
+  | 'TRIAL_STARTED'
+  | 'TRIAL_EXPIRED'
+  | 'PRO_GRANTED'
+  | 'PRO_REVOKED'
+  | 'SUBSCRIPTION_STARTED'
+  | 'SUBSCRIPTION_RENEWED'
+  | 'SUBSCRIPTION_CANCELLED'
+  | 'SUBSCRIPTION_EXPIRED'
+  | 'SUBSCRIPTION_RESTORED';
+
+export interface SubscriptionHistoryEvent {
+  id: string;
+  userId: string;
+  eventType: SubscriptionHistoryEventType;
+  plan: string;
+  source: 'TRIAL' | 'PAYMENT' | 'ADMIN' | 'NONE';
+  provider: string; // e.g. 'ADMIN', 'SYSTEM', 'PAYMENT_PENDING'
+  providerEventId?: string | null;
+  timestamp: number;
+  metadata?: Record<string, any>;
+}
+
+export interface SubscriptionAdminConfig {
+  plans: SubscriptionPlanConfig[];
+  defaultCurrency: string;
+  defaultLocale: string;
+  paymentGatewayReady: boolean;
+  statusNote: string;
+  updatedAt?: number;
+  updatedBy?: string;
+}
+
+export interface SubscriptionFeatureComparisonItem {
+  feature: string;
+  category: 'signals' | 'scanner' | 'risk' | 'intelligence' | 'tools';
+  freeValue: string;
+  proValue: string;
+  freeSupported: boolean | 'LIMITED';
+  proSupported: boolean;
+  tooltip?: string;
+}
+
+export interface SubscriptionCheckoutResponse {
+  success: boolean;
+  planId: string;
+  planName: string;
+  price: number;
+  currency: string;
+  message: string;
+  isDemoMode: boolean;
+  paymentProviderStatus: 'NOT_CONFIGURED' | 'READY';
+  accountCharged: boolean;
+  checkoutTimestamp: number;
+}
+
+// ==========================================
+// PHASE 21: EXTERNAL INTELLIGENCE DATA LAYER
+// ==========================================
+
+export type ExternalIntelligenceStatus = 'LIVE' | 'DELAYED' | 'STALE' | 'UNAVAILABLE' | 'ERROR' | 'DISABLED' | 'NOT_CONFIGURED';
+
+export type ExternalSourceQuality = 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN';
+
+export type ExternalEvidenceCategory =
+  | 'WHALE'
+  | 'EXCHANGE_FLOW'
+  | 'ONCHAIN'
+  | 'DEX'
+  | 'STABLECOIN'
+  | 'LIQUIDITY'
+  | 'MARKET_CONTEXT';
+
+export type ExternalEvidenceDirection = 'POSITIVE' | 'NEGATIVE' | 'NEUTRAL' | 'UNKNOWN';
+
+export type WhaleTransactionType =
+  | 'EXCHANGE_INFLOW'
+  | 'EXCHANGE_OUTFLOW'
+  | 'WALLET_TO_WALLET'
+  | 'MINT'
+  | 'BURN'
+  | 'UNKNOWN';
+
+export interface WhaleEvent {
+  id: string;
+  provider: string;
+  providerEventId?: string;
+  timestamp: number;
+  observedAt: number;
+  receivedAt?: number;
+  processedAt?: number;
+  blockchain: string;
+  asset: string;
+  symbol?: string;
+  amount: number;
+  valueUsd: number;
+  fromAddress: string;
+  toAddress: string;
+  fromEntity?: string | null;
+  toEntity?: string | null;
+  fromType: 'EXCHANGE' | 'WALLET' | 'MINER' | 'DEFI' | 'UNKNOWN';
+  toType: 'EXCHANGE' | 'WALLET' | 'MINER' | 'DEFI' | 'UNKNOWN';
+  transactionType: WhaleTransactionType;
+  transactionHash: string;
+  confidence: number; // 0 - 100
+  sourceUrl?: string | null;
+  rawReference?: string | null;
+  freshness: ExternalIntelligenceStatus;
+  isMockData?: boolean;
+}
+
+export interface AssetMapping {
+  canonicalAsset: string;
+  chain: string;
+  contractAddress?: string | null;
+  providerAssetId: string;
+  symbol: string;
+  decimals: number;
+  verified: boolean;
+  mappingConfidence: number; // 0 - 100
+}
+
+export type WhaleAggregationWindow = '5m' | '15m' | '1h' | '4h' | '24h';
+
+export interface WhaleAggregationMetrics {
+  window: WhaleAggregationWindow;
+  whaleTransferCount: number;
+  whaleVolumeUsd: number;
+  exchangeInflowUsd: number;
+  exchangeOutflowUsd: number;
+  netExchangeFlowUsd: number;
+  largeBuyRelatedFlow: number;
+  largeSellRelatedFlow: number;
+  stablecoinFlowUsd: number;
+  largestTransferUsd: number;
+  flowRegime: 'ACCUMULATION_LEAN' | 'DISTRIBUTION_LEAN' | 'BALANCED' | 'INSUFFICIENT_OBSERVATIONS';
+  regimeConfidence: number; // 0 - 100
+  observationCount: number;
+  timestamp: number;
+}
+
+export type DexRiskFlag =
+  | 'LOW_LIQUIDITY'
+  | 'EXTREME_PRICE_IMPACT'
+  | 'LIQUIDITY_REMOVAL'
+  | 'EXTREME_BUY_SELL_IMBALANCE'
+  | 'UNKNOWN_TOKEN'
+  | 'UNKNOWN_CONTRACT'
+  | 'UNVERIFIED_CONTRACT'
+  | 'STALE_DATA';
+
+export interface DexPair {
+  chain: string;
+  dex: string;
+  pairAddress: string;
+  baseAsset: string;
+  quoteAsset: string;
+  price: number;
+  priceChange24h: number;
+  volume24h: number;
+  liquidityUsd: number;
+  marketCap?: number | null;
+  fdv?: number | null;
+  txns24h: number;
+  buys24h: number;
+  sells24h: number;
+  buyVolume24h: number;
+  sellVolume24h: number;
+  timestamp: number;
+  observedAt: number;
+  source: string;
+  freshness: ExternalIntelligenceStatus;
+  sourceQuality: ExternalSourceQuality;
+  riskFlags: DexRiskFlag[];
+  safetyStatus: 'UNKNOWN' | 'REVIEWED_CAUTION' | 'REVIEWED_ELEVATED_RISK';
+}
+
+export interface DexActivityMetrics {
+  baseAsset: string;
+  volumeSpikeRatio: number;
+  liquidityChange24hPct: number;
+  txnsImbalanceRatio: number; // buys / (buys + sells)
+  buyPressureScore: number; // 0 - 100
+  sellPressureScore: number; // 0 - 100
+  hasNewLiquidity: boolean;
+  hasLiquidityRemoval: boolean;
+  largeDexTransactionsCount: number;
+  dexActivityScore: number; // 0 - 100
+  freshness: ExternalIntelligenceStatus;
+  sourceQuality: ExternalSourceQuality;
+  timestamp: number;
+}
+
+export interface ExternalEvidence {
+  id: string;
+  asset: string;
+  symbol: string;
+  source: string;
+  provider: string;
+  providerEventId?: string;
+  category: ExternalEvidenceCategory;
+  timestamp: number;
+  observedAt: number;
+  receivedAt?: number;
+  processedAt?: number;
+  value: number | string;
+  unit: string;
+  direction: ExternalEvidenceDirection;
+  confidence: number; // 0 - 100
+  freshness: ExternalIntelligenceStatus;
+  sourceQuality: ExternalSourceQuality;
+  description: string;
+  reference?: string | null;
+  isMockData?: boolean;
+}
+
+export interface ExternalIntelligenceSummary {
+  asset: string;
+  symbol: string;
+  whaleActivityScore: number; // 0 - 100
+  dexActivityScore: number; // 0 - 100
+  externalEvidenceScore: number; // -100 to +100
+  flowRegime: string;
+  dominantDirection: ExternalEvidenceDirection;
+  evidenceCount: number;
+  supportingEvidence: ExternalEvidence[];
+  conflictingEvidence: ExternalEvidence[];
+  neutralEvidence: ExternalEvidence[];
+  whaleAggregations: Record<WhaleAggregationWindow, WhaleAggregationMetrics | null>;
+  dexMetrics: DexActivityMetrics | null;
+  freshness: ExternalIntelligenceStatus;
+  sourceQuality: ExternalSourceQuality;
+  lastUpdated: number;
+  isMockData?: boolean;
+}
+
+export interface ExternalIntelligenceAdminConfig {
+  externalEvidenceEnabled: boolean;
+  whaleWeight: number; // 0 - 50 (default 15)
+  dexWeight: number; // 0 - 50 (default 10)
+  minConfidenceThreshold: number; // default 60
+  freshnessThresholds: {
+    liveSec: number; // default 30
+    delayedSec: number; // default 120
+  };
+  mockMode: boolean; // EXTERNAL_INTELLIGENCE_MOCK_MODE
+  providers: {
+    id: string;
+    name: string;
+    enabled: boolean;
+    priority: number;
+    apiKeyConfigured: boolean;
+    status: ExternalIntelligenceStatus;
+  }[];
+  updatedAt: number;
+  updatedBy?: string;
+}
+
+export interface ExternalProviderHealthDetail {
+  providerId: string;
+  providerName: string;
+  status: ExternalIntelligenceStatus;
+  configured: boolean;
+  enabled: boolean;
+  latencyMs: number;
+  lastSuccessfulRequest: number | null;
+  lastEventAt: number | null;
+  eventsReceived: number;
+  eventsProcessed: number;
+  eventsRejected: number;
+  duplicates: number;
+  rateLimit429Count: number;
+  timeoutCount: number;
+  errorCount: number;
+  freshness: ExternalIntelligenceStatus;
+  connectionMode: 'WEBSOCKET' | 'REST_POLLING' | 'FALLBACK_REST' | 'NOT_CONNECTED';
+  message?: string;
+}
+
+export interface ExternalTelemetrySummary {
+  requests: number;
+  successes: number;
+  errors: number;
+  avgLatencyMs: number;
+  eventsReceived: number;
+  eventsProcessed: number;
+  eventsRejected: number;
+  duplicatesIgnored: number;
+  staleEventsFiltered: number;
+  alertsGenerated: number;
+}
+
+// ==========================================
+// PHASE 27: SOFT LAUNCH, OBSERVABILITY & MONITORING TYPES
+// ==========================================
+
+export type LaunchMode = 'DEVELOPMENT' | 'STAGING' | 'SOFT_LAUNCH' | 'PRODUCTION';
+
+export type FeatureFlagKey =
+  | 'SIGNALS_ENABLED'
+  | 'WHALE_ENABLED'
+  | 'DEX_INTELLIGENCE_ENABLED'
+  | 'AI_TRADER_ENABLED'
+  | 'COMMUNITY_ENABLED'
+  | 'ALERTS_ENABLED'
+  | 'PAYMENTS_ENABLED'
+  | 'TRIAL_ENABLED'
+  | 'NEW_USER_REGISTRATION_ENABLED';
+
+export type KillSwitchKey =
+  | 'AI_TRADER'
+  | 'ALERT_ENGINE'
+  | 'NOTIFICATIONS'
+  | 'WHALE_PROVIDER'
+  | 'DEX_PROVIDER'
+  | 'PAYMENT_CHECKOUT'
+  | 'COMMUNITY_POSTING'
+  | 'MAINTENANCE_MODE';
+
+export type IncidentSeverity = 'SEV-1' | 'SEV-2' | 'SEV-3' | 'SEV-4';
+export type IncidentStatus = 'OPEN' | 'INVESTIGATING' | 'CONTAINED' | 'RESOLVED';
+
+export interface IncidentRecord {
+  id: string;
+  title: string;
+  severity: IncidentSeverity;
+  affectedComponent: string;
+  status: IncidentStatus;
+  createdAt: number;
+  resolvedAt: number | null;
+  createdBy: string;
+  resolvedBy?: string | null;
+  resolutionSummary?: string | null;
+}
+
+export type ProductAnalyticsEventType =
+  | 'app_open'
+  | 'login'
+  | 'dashboard_view'
+  | 'scanner_open'
+  | 'scanner_filter_change'
+  | 'exchange_change'
+  | 'coin_open'
+  | 'signal_view'
+  | 'bull_score_view'
+  | 'risk_score_view'
+  | 'whale_view'
+  | 'external_intelligence_view'
+  | 'watchlist_add'
+  | 'watchlist_remove'
+  | 'alert_create'
+  | 'alert_triggered'
+  | 'ai_trader_open'
+  | 'ai_trader_request'
+  | 'community_open'
+  | 'community_post'
+  | 'pricing_view'
+  | 'checkout_started'
+  | 'subscription_activated'
+  | 'subscription_canceled';
+
+export interface ProductAnalyticsEvent {
+  id: string;
+  eventType: ProductAnalyticsEventType;
+  userId?: string | null;
+  timestamp: number;
+  metadata?: Record<string, any>;
+}
+
+export interface FunnelStageMetric {
+  stage: string;
+  uniqueUsers: number;
+  conversionPercent: number;
+}
+
+export interface DataIntegrityReport {
+  timestamp: number;
+  healthy: boolean;
+  issuesCount: number;
+  anomalies: string[];
+  metrics: {
+    totalUsers: number;
+    totalSubscriptions: number;
+    totalAlerts: number;
+    totalWatchlists: number;
+    totalPaymentEvents: number;
+  };
+}
+
+// ==========================================
+// PHASE 28: REAL USER FEEDBACK & OPTIMIZATION
+// ==========================================
+
+export type FeedbackCategory =
+  | 'signal_accuracy'
+  | 'feature_request'
+  | 'bug_report'
+  | 'ux_usability'
+  | 'general';
+
+export interface UserFeedbackItem {
+  id: string;
+  userId?: string | null;
+  category: FeedbackCategory;
+  rating: number; // 1 to 5 stars
+  message: string;
+  userTier: string;
+  timestamp: number;
+  resolved: boolean;
+}
+
+export interface JourneyFunnelStep {
+  stepIndex: number;
+  name: string;
+  uniqueUsers: number;
+  conversionFromStart: number;
+  dropOffRatePercent: number;
+  insufficientData: boolean;
+}
+
+export interface FeatureUsageMetric {
+  featureKey: string;
+  name: string;
+  callCount: number;
+  category: string;
+}
+
+export interface ActivationStatusSummary {
+  registeredUsers: number;
+  activatedUsers: number;
+  activationRatePercent: number;
+  definitionName: string;
+  thresholdCalls: number;
+  status: 'ACTIVE' | 'INSUFFICIENT_DATA';
+}
+
+export interface SegmentedCohortRetention {
+  segment: 'FREE' | 'TRIAL' | 'PRO';
+  sampleSize: number;
+  day1Percent: number | string;
+  day7Percent: number | string;
+  day30Percent: number | string;
+  insufficientData: boolean;
+}
+
+export interface TrialCorrelationItem {
+  behavior: string;
+  usagePercentInConverted: number;
+  usagePercentInExpired: number;
+  correlationRatio: number;
+  caveatNote: string;
+}
+
+export interface ProCapabilityItem {
+  capability: string;
+  proUsageCount: number;
+  rank: number;
+  notes: string;
+}
+
+export interface RealUserPerformanceStats {
+  pageLoadAvgMs: number;
+  scannerLoadAvgMs: number;
+  coinDetailLoadAvgMs: number;
+  aiResponseAvgMs: number;
+  apiLatencyP50Ms: number;
+  apiLatencyP95Ms: number;
+  apiLatencyP99Ms: number;
+  webSocketReconnectsTotal: number;
+  mobileVsDesktop: {
+    mobilePercent: number;
+    desktopPercent: number;
+  };
+}
+
+export interface ProductionErrorImpact {
+  id: string;
+  feature: string;
+  message: string;
+  severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  frequency: number;
+  affectedUsersCount: number;
+  platform: 'MOBILE' | 'DESKTOP' | 'ALL';
+  priorityScore: number;
+  dataIntegrityOrSecurityImpact: boolean;
+}
+
+// ==========================================
+// PHASE 29: SIGNAL QUALITY & CALIBRATION TYPES
+// ==========================================
+
+export interface SignalInventoryItem {
+  signalType: string;
+  category: 'Directional' | 'Risk' | 'Confluence' | 'Structure' | 'Derivatives' | 'External';
+  inputs: string[];
+  weightsDescription: string;
+  thresholdsDescription: string;
+  timeframes: string[];
+  expirationRule: string;
+  invalidationRule: string;
+  modelVersion: string;
+}
+
+export interface SignalCalibrationBucket {
+  scoreRange: '0–30' | '31–50' | '51–70' | '71–85' | '86–100';
+  sampleSize: number;
+  avgForwardReturn: number;
+  avgMfe: number;
+  avgMae: number;
+  hitRatePercent: number;
+  confidenceInterval95: [number, number];
+  isMonotonicallyCalibrated: boolean;
+}
+
+export interface RiskCalibrationBucket {
+  riskRange: '0–30' | '31–50' | '51–70' | '71–85' | '86–100';
+  sampleSize: number;
+  avgMaePercent: number;
+  maxDrawdownPercent: number;
+  downsideWarningAccuracyPercent: number;
+  isCalibrated: boolean;
+}
+
+export interface MtfConfluenceCalibration {
+  timeframeAgreement: string; // '1 TF', '2 TF', '3 TF', '4 TF', '5 TF'
+  sampleSize: number;
+  avgForwardReturn: number;
+  hitRatePercent: number;
+  mfeMaeRatio: number;
+  confluenceLiftPercent: number;
+}
+
+export interface ComponentContributionItem {
+  component: string;
+  inSampleWeight: number;
+  oosInformationCoefficient: number;
+  winRateImpactPercent: number;
+  status: 'ACTIVE' | 'NEUTRAL' | 'FLAGGED';
+}
+
+export interface WhaleSignalValidationItem {
+  eventType: 'EXCHANGE_INFLOW' | 'EXCHANGE_OUTFLOW' | 'LARGE_TRANSFER' | 'ACCUMULATION' | 'DISTRIBUTION' | 'LARGE_TRADE';
+  sampleSize: number;
+  avgForward1hReturn: number;
+  avgForward24hReturn: number;
+  bullishCorrelationRatio: number;
+  historicalInterpretation: string;
+}
+
+export interface DexSignalValidationItem {
+  metric: 'VOLUME_SPIKE' | 'LIQUIDITY_CHANGE' | 'LARGE_BUY_SELL' | 'POOL_EXPANSION';
+  sampleSize: number;
+  correlationScore: number;
+  avgForwardReturn: number;
+  status: 'VALIDATED' | 'INSUFFICIENT_SAMPLE' | 'N/A';
+}
+
+export interface DerivativesValidationItem {
+  combination: 'PRICE_UP_OI_UP' | 'PRICE_UP_OI_DOWN' | 'PRICE_DOWN_OI_UP' | 'PRICE_DOWN_OI_DOWN' | 'OI_SPIKE_FUNDING_HIGH' | 'LIQUIDATION_CASCADE';
+  sampleSize: number;
+  avgForwardReturn: number;
+  hitRatePercent: number;
+  interpretationCaveat: string;
+}
+
+export interface RegimeValidationItem {
+  regime: 'BULL' | 'BEAR' | 'SIDEWAYS' | 'HIGH_VOLATILITY' | 'LOW_VOLATILITY';
+  sampleSize: number;
+  avgBullSignalReturn: number;
+  avgRiskScore: number;
+  hitRatePercent: number;
+}
+
+export interface BtcContextValidationItem {
+  btcRegime: 'BTC_BULLISH' | 'BTC_NEUTRAL' | 'BTC_BEARISH' | 'BTC_HIGH_VOL';
+  altcoinSignalsAnalyzed: number;
+  altcoinSignalHitRate: number;
+  contextualImpact: string;
+}
+
+export interface ExchangeComparisonItem {
+  exchange: 'BINANCE' | 'BYBIT';
+  sampleSize: number;
+  avgSignalReturn: number;
+  slippageEstimatedBps: number;
+  dataQualityStatus: 'LIVE' | 'DELAYED' | 'STALE';
+}
+
+export interface ModelVersionRecord {
+  version: string;
+  role: 'CHAMPION' | 'CHALLENGER' | 'ARCHIVED';
+  releasedAt: number;
+  weights: Record<string, number>;
+  thresholds: Record<string, number>;
+  description: string;
+  oosSampleCount: number;
+  validationStatus: 'VALIDATED' | 'REQUIRES_VALIDATION' | 'REJECTED';
+}
+
+export interface ModelPromotionGateReport {
+  championVersion: string;
+  candidateVersion: string;
+  lookaheadAuditPassed: boolean;
+  sampleSizePassed: boolean;
+  oosValidationPassed: boolean;
+  walkForwardStabilityPassed: boolean;
+  regimeRobustnessPassed: boolean;
+  exchangeRobustnessPassed: boolean;
+  survivorshipBiasWarning: string;
+  promotionDecision: 'PASS' | 'FAIL' | 'INSUFFICIENT_DATA';
+  decisionRationale: string[];
+}
+
+export interface ModelDriftReport {
+  timestamp: number;
+  scoreDriftDetected: boolean;
+  frequencyDriftDetected: boolean;
+  inputDriftDetected: boolean;
+  providerDriftDetected: boolean;
+  overallStatus: 'STABLE' | 'MODEL_DRIFT_DETECTED';
+  details: string[];
+}
+
+export interface SignalQualityDashboardSummary {
+  currentModelVersion: string;
+  candidateModelVersion: string;
+  totalSignalsAnalyzed: number;
+  outOfSampleSignalsCount: number;
+  lookaheadBiasAudit: 'PASS' | 'FAIL';
+  calibrationStatus: 'PASS' | 'FAIL' | 'INSUFFICIENT_DATA';
+  walkForwardStability: 'PASS' | 'FAIL' | 'INSUFFICIENT_DATA';
+  modelDriftStatus: 'STABLE' | 'MODEL_DRIFT_DETECTED';
+  promotionGateStatus: 'PASS' | 'FAIL' | 'INSUFFICIENT_DATA';
+  survivorshipBiasWarning: string;
+}
+
+// ==========================================
+// PHASE 30: INTELLIGENCE EXPLAINABILITY & TRUST LAYER
+// ==========================================
+
+export type EvidenceClassification = 'SUPPORTING' | 'CONFLICTING' | 'NEUTRAL' | 'UNAVAILABLE';
+
+export type SignalConfidenceLabel =
+  | 'HIGH CONFIDENCE'
+  | 'MEDIUM CONFIDENCE'
+  | 'LOW CONFIDENCE'
+  | 'INSUFFICIENT DATA';
+
+export type SignalStatePhase30 =
+  | 'ACTIVE'
+  | 'STRENGTHENING'
+  | 'WEAKENING'
+  | 'INVALIDATED'
+  | 'EXPIRED'
+  | 'STALE'
+  | 'INSUFFICIENT_DATA';
+
+export interface ClassifiedEvidenceItem {
+  id: string;
+  category: SignalEvidenceCategory;
+  factor: string;
+  classification: EvidenceClassification;
+  description: string;
+  source: string;
+  exchange: string;
+  provider: string;
+  timeframe?: string;
+  updatedAt: number;
+  freshnessSeconds: number;
+  dataStatus: 'LIVE' | 'STALE' | 'UNAVAILABLE' | 'DEGRADED';
+  importance: 'HIGH' | 'MEDIUM' | 'LOW';
+  metricValue?: any;
+}
+
+export interface InvalidationConditionItem {
+  id: string;
+  condition: string;
+  type: 'PRICE_LEVEL' | 'TECHNICAL_EVENT' | 'VOLUME_DROP' | 'MTF_CONFLICT' | 'EXPIRATION';
+  triggerValue?: string | number;
+  currentStatus: 'MONITORING' | 'TRIGGERED' | 'SAFE';
+  description: string;
+}
+
+export interface TimeframeConfluenceEvidence {
+  timeframe: Timeframe;
+  direction: SignalDirection;
+  bias: string;
+  score: number;
+  trendSummary: string;
+  isSupporting: boolean;
+  weight: number;
+}
+
+export interface DataProvenanceItem {
+  streamName: string;
+  provider: string;
+  exchange: string;
+  symbol: string;
+  timeframe: string;
+  lastUpdated: number;
+  freshnessText: string;
+  status: 'LIVE' | 'STALE' | 'UNAVAILABLE' | 'DEGRADED';
+  latencyMs?: number;
+}
+
+export interface DataQualityReport {
+  score: number | null; // null if insufficient data
+  label: 'HIGH' | 'MODERATE' | 'LOW' | 'INSUFFICIENT_DATA';
+  factors: {
+    marketData: number | null;
+    indicators: number | null;
+    derivatives: number | null;
+    orderFlow: number | null;
+    whaleData: number | null;
+    dexData: number | null;
+  };
+  hasDegradedProviders: boolean;
+  degradedProvidersList: string[];
+  explanation: string;
+}
+
+export interface SignalTimelineEntry {
+  id: string;
+  timestamp: number;
+  timeFormatted: string;
+  eventType: 'GENERATED' | 'STRENGTHENED' | 'WEAKENED' | 'INVALIDATED' | 'EXPIRED' | 'CONFIRMATION_ADDED';
+  title: string;
+  description: string;
+  triggerFactor?: string;
+  stateAfter: SignalStatePhase30;
+}
+
+export interface SignalExplanationOutput {
+  signalId: string;
+  symbol: string;
+  exchange: string;
+  timeframe: string;
+  signalType: SignalType;
+  direction: SignalDirection;
+  signalState: SignalStatePhase30;
+  bullScore: number;
+  downsideRisk: number;
+  summary: string;
+  conclusion: string;
+  supportingEvidence: ClassifiedEvidenceItem[];
+  conflictingEvidence: ClassifiedEvidenceItem[];
+  neutralEvidence: ClassifiedEvidenceItem[];
+  unavailableEvidence: ClassifiedEvidenceItem[];
+  invalidationConditions: InvalidationConditionItem[];
+  timeframeEvidence: TimeframeConfluenceEvidence[];
+  sourceEvidence: DataProvenanceItem[];
+  dataQuality: DataQualityReport;
+  confidenceLabel: SignalConfidenceLabel;
+  confidenceScore: number; // 0-100 analytical completeness, NOT profit probability
+  hasContradiction: boolean;
+  contradictionSummary?: string;
+  providerHealthImpact?: string;
+  modelVersion: {
+    signalModel: string;
+    scoringModel: string;
+    riskModel: string;
+    generatedAt: number;
+  };
+  timeline: SignalTimelineEntry[];
+  generatedAt: number;
+  natureOfSignal: {
+    isObservation: boolean;
+    isCalculation: boolean;
+    isAiInterpretation: boolean;
+    explanation: string;
+  };
+}
+
+export interface TrustDashboardMetrics {
+  totalSignalsAudited: number;
+  explanationCoveragePercent: number;
+  evidenceCompletenessPercent: number;
+  missingDataRatePercent: number;
+  staleSignalRatePercent: number;
+  contradictionRatePercent: number;
+  providerDegradationPercent: number;
+  signalInvalidationRatePercent: number;
+  dataProvenanceCoveragePercent: number;
+  confidenceDistribution: {
+    high: number;
+    medium: number;
+    low: number;
+    insufficientData: number;
+  };
+  modelVersionDistribution: Record<string, number>;
+  explanationGenerationFailures: number;
+  lastUpdated: number;
+}
+
+export interface ExplanationFeedbackRecord {
+  id: string;
+  signalId: string;
+  symbol: string;
+  userId?: string | null;
+  userTier?: string;
+  isHelpful: boolean;
+  reason?: 'unclear' | 'missing_evidence' | 'conflicting_evidence' | 'too_technical' | 'incorrect_data' | 'other';
+  comment?: string;
+  timestamp: number;
+}
+
+
+
+
+
 
 

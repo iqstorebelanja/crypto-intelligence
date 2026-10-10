@@ -31,12 +31,17 @@ import {
   AIMessage,
   AIToolInvocation,
   ExchangeId,
-  StructuredAIAnalysis
+  StructuredAIAnalysis,
+  AIQuotaStatus
 } from '../types';
+import { RewardedAdModal } from './RewardedAdModal';
+import { rewardedAdClient } from '../services/rewardedAdClient';
 
 interface AiTraderChatProps {
   activeExchange: ExchangeId;
   onSelectCoin?: (symbol: string) => void;
+  token?: string | null;
+  onOpenUpgradeModal?: (context?: string) => void;
 }
 
 const DEFAULT_PROMPTS = [
@@ -51,7 +56,9 @@ const DEFAULT_PROMPTS = [
 
 export const AiTraderChat: React.FC<AiTraderChatProps> = ({
   activeExchange,
-  onSelectCoin
+  onSelectCoin,
+  token,
+  onOpenUpgradeModal
 }) => {
   const [messages, setMessages] = useState<AIMessage[]>([
     {
@@ -70,8 +77,8 @@ All market questions are resolved by **querying backend tools directly** (Spot p
 - *"Detect indicator conflicts on BTC"* (Divergence and positioning audit)
 - *"Explain SOL Bull Score breakdown"* (Deconstructs factor weights)
 
-DYOR — Do Your Own Research. Not Financial Advice.`,
-      disclaimer: 'DYOR — Do Your Own Research. Not Financial Advice.',
+DYOR — not financial advice.`,
+      disclaimer: 'DYOR — not financial advice.',
       timestamp: Date.now()
     }
   ]);
@@ -80,20 +87,37 @@ DYOR — Do Your Own Research. Not Financial Advice.`,
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [expandedTools, setExpandedTools] = useState<Record<string, boolean>>({});
+  const [quota, setQuota] = useState<AIQuotaStatus | null>(null);
+  const [isAdModalOpen, setIsAdModalOpen] = useState<boolean>(false);
+  const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
+  const [quotaErrorBanner, setQuotaErrorBanner] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  const refreshQuota = async () => {
+    try {
+      const q = await rewardedAdClient.getQuota(token);
+      if (q) setQuota(q);
+    } catch {
+      // Ignore background refresh errors
+    }
+  };
+
+  useEffect(() => {
+    refreshQuota();
+  }, [token]);
+
   useEffect(() => {
     scrollToBottom();
   }, [messages, isGenerating]);
 
-  const handleSendMessage = async (promptToSend?: string) => {
-    const text = (promptToSend || input).trim();
-    if (!text || isGenerating) return;
-
+  /**
+   * Actual AI Request execution after quota / ad validation
+   */
+  const executeAiRequest = async (text: string, rewardSessionId?: string) => {
     const userMessage: AIMessage = {
       id: `user_${Date.now()}`,
       role: 'user',
@@ -102,33 +126,95 @@ DYOR — Do Your Own Research. Not Financial Advice.`,
     };
 
     setMessages(prev => [...prev, userMessage]);
-    if (!promptToSend) setInput('');
+    setInput('');
+    setPendingPrompt(null);
     setIsGenerating(true);
+    setQuotaErrorBanner(null);
 
     try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
       const res = await fetch('/api/ai/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, exchange: activeExchange })
+        headers,
+        body: JSON.stringify({
+          message: text,
+          exchange: activeExchange,
+          rewardSessionId
+        })
       });
 
+      const data = await res.json();
+
       if (!res.ok) {
-        throw new Error(`Server returned HTTP ${res.status}`);
+        if (data.code === 'QUOTA_EXHAUSTED') {
+          setQuotaErrorBanner(data.error || 'Daily AI quota exhausted. Upgrade to PRO for higher limits.');
+          refreshQuota();
+          throw new Error(data.error);
+        } else if (data.code === 'REWARD_AD_REQUIRED') {
+          // Open ad gate
+          setPendingPrompt(text);
+          setIsAdModalOpen(true);
+          return;
+        }
+        throw new Error(data.error || `Server returned HTTP ${res.status}`);
       }
 
-      const aiResponse: AIMessage = await res.json();
+      const aiResponse: AIMessage = data;
       setMessages(prev => [...prev, aiResponse]);
+      refreshQuota();
     } catch (err) {
       const errorMessage: AIMessage = {
         id: `err_${Date.now()}`,
         role: 'assistant',
-        content: `### Execution Error\nFailed to complete research analysis: ${(err as Error).message}\n\nPlease verify backend connectivity.\n\nDYOR — Do Your Own Research. Not Financial Advice.`,
-        disclaimer: 'DYOR — Do Your Own Research. Not Financial Advice.',
+        content: `### Execution Notice\n${(err as Error).message}\n\nDYOR — not financial advice.`,
+        disclaimer: 'DYOR — not financial advice.',
         timestamp: Date.now()
       };
       setMessages(prev => [...prev, errorMessage]);
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  /**
+   * Entry point when user clicks Ask AI or a suggested query
+   */
+  const handleSendMessage = async (promptToSend?: string) => {
+    const text = (promptToSend || input).trim();
+    if (!text || isGenerating) return;
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setQuotaErrorBanner('Network offline — reconnecting... AI requests are temporarily paused.');
+      return;
+    }
+
+    // Check quota state first
+    const currentQuota = quota || await rewardedAdClient.getQuota(token);
+    if (currentQuota) setQuota(currentQuota);
+
+    // If quota exhausted
+    if (currentQuota && currentQuota.remainingQuota <= 0) {
+      setQuotaErrorBanner('Daily AI Trader limit reached.');
+      return;
+    }
+
+    // Free user requires 15-second rewarded advertisement
+    if (currentQuota && currentQuota.adRequired) {
+      setPendingPrompt(text);
+      setIsAdModalOpen(true);
+      return;
+    }
+
+    // PRO or Admin: Immediate ad-free execution
+    await executeAiRequest(text);
+  };
+
+  const handleRewardVerified = (sessionId: string) => {
+    setIsAdModalOpen(false);
+    if (pendingPrompt) {
+      executeAiRequest(pendingPrompt, sessionId);
     }
   };
 
@@ -156,6 +242,15 @@ DYOR — Do Your Own Research. Not Financial Advice.`,
               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-950 text-purple-300 border border-purple-500/40">
                 PHASE 3 LIVE
               </span>
+              {quota?.isPro ? (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-950/80 text-amber-300 border border-amber-500/50 flex items-center space-x-1">
+                  <span>👑 PRO • AD-FREE</span>
+                </span>
+              ) : (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-950/80 text-cyan-300 border border-cyan-500/50 flex items-center space-x-1">
+                  <span>⚡ FREE • 15s AD GATE</span>
+                </span>
+              )}
             </div>
             <p className="text-[11px] text-slate-400">
               Grounded Institutional Co-pilot • Strict Server-Side Tool Calling • Zero Hallucination
@@ -168,6 +263,11 @@ DYOR — Do Your Own Research. Not Financial Advice.`,
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             <span>Tools: <strong className="text-purple-300">11 Active</strong></span>
           </div>
+
+          <div className="px-2.5 py-1 rounded-lg bg-[#080d16] border border-[#1b253b] text-slate-300">
+            Quota: <strong className="text-emerald-400">{quota?.remainingQuota ?? 5} / {quota?.dailyLimit ?? 5}</strong>
+          </div>
+
           <div className="px-2.5 py-1 rounded-lg bg-[#080d16] border border-[#1b253b] text-slate-300">
             Exchange: <strong className="text-cyan-400">{activeExchange}</strong>
           </div>
@@ -180,6 +280,35 @@ DYOR — Do Your Own Research. Not Financial Advice.`,
           </button>
         </div>
       </div>
+
+      {/* Quota Exhausted Alert Banner */}
+      {quotaErrorBanner && (
+        <div className="p-3.5 bg-rose-950/40 border border-rose-800/60 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-rose-300">
+          <div className="flex items-center space-x-2">
+            <ShieldAlert className="w-4 h-4 text-rose-400 flex-shrink-0" />
+            <span className="font-bold">{quotaErrorBanner}</span>
+          </div>
+          <div className="flex items-center space-x-2 w-full sm:w-auto">
+            <button
+              type="button"
+              onClick={() => {
+                if (onOpenUpgradeModal) onOpenUpgradeModal('Daily AI Trader Limit');
+                else window.location.href = '/pricing';
+              }}
+              className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-mono font-bold text-xs shadow-md transition-all active:scale-95 flex items-center space-x-1"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Upgrade to PRO</span>
+            </button>
+            <button
+              onClick={() => setQuotaErrorBanner(null)}
+              className="text-slate-400 hover:text-slate-200 text-xs px-2 py-1 rounded bg-[#0c121e] border border-[#1b253b]"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Suggested Quick Prompt Chips */}
       <div className="flex flex-wrap items-center gap-1.5">
@@ -486,36 +615,55 @@ DYOR — Do Your Own Research. Not Financial Advice.`,
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input Bar */}
-      <form
-        onSubmit={e => {
-          e.preventDefault();
-          handleSendMessage();
-        }}
-        className="bg-[#0c121e] border border-[#1b253b] rounded-2xl p-2.5 shadow-xl flex items-center space-x-2"
-      >
-        <div className="pl-2 text-purple-400">
-          <Terminal className="w-4 h-4" />
-        </div>
-
-        <input
-          type="text"
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          placeholder="Ask AI Trader: 'Analyze SOL', 'Compare BTC vs ETH', 'Scan Bull Score > 80', 'Whale transfers'..."
-          disabled={isGenerating}
-          className="flex-1 bg-transparent text-slate-100 text-xs placeholder-slate-500 focus:outline-none px-2 py-1 font-mono"
-        />
-
-        <button
-          type="submit"
-          disabled={!input.trim() || isGenerating}
-          className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs transition-all disabled:opacity-40 flex items-center space-x-1.5 shadow-md shadow-purple-600/20"
+      {/* Input Bar (Phase 23 Mobile Safe Area & Sticky Composer) */}
+      <div className="sticky bottom-16 lg:bottom-4 z-30 pt-1 pb-safe">
+        <form
+          onSubmit={e => {
+            e.preventDefault();
+            handleSendMessage();
+          }}
+          className="bg-[#0c121e]/95 backdrop-blur-md border border-[#1b253b] rounded-2xl p-2 shadow-2xl flex items-center space-x-2"
         >
-          <span>Send</span>
-          <Send className="w-3.5 h-3.5" />
-        </button>
-      </form>
+          <div className="pl-2 text-purple-400">
+            <Terminal className="w-4 h-4" />
+          </div>
+
+          <input
+            type="text"
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            placeholder={
+              typeof navigator !== 'undefined' && !navigator.onLine
+                ? 'Network offline — reconnecting...'
+                : "Ask AI Trader: 'Analyze SOL', 'Scan Bull Score > 80', 'Whale transfers'..."
+            }
+            disabled={isGenerating || (typeof navigator !== 'undefined' && !navigator.onLine)}
+            className="flex-1 bg-transparent text-slate-100 text-xs placeholder-slate-500 focus:outline-none px-2 py-2 font-mono min-h-[44px]"
+          />
+
+          <button
+            type="submit"
+            disabled={!input.trim() || isGenerating || (typeof navigator !== 'undefined' && !navigator.onLine)}
+            className="min-h-[44px] min-w-[44px] px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs transition-all disabled:opacity-40 flex items-center justify-center space-x-1.5 shadow-md shadow-purple-600/20 active:scale-95"
+            aria-label="Send message to AI Trader"
+          >
+            <span className="hidden sm:inline">Send</span>
+            <Send className="w-4 h-4" />
+          </button>
+        </form>
+      </div>
+
+      {/* 15-Second Rewarded Ad Modal for Free Tier */}
+      <RewardedAdModal
+        isOpen={isAdModalOpen}
+        quota={quota}
+        token={token ?? null}
+        onRewardVerified={handleRewardVerified}
+        onClose={() => {
+          setIsAdModalOpen(false);
+          setPendingPrompt(null);
+        }}
+      />
     </div>
   );
 };

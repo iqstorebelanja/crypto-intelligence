@@ -13,18 +13,23 @@ import {
   Zap
 } from 'lucide-react';
 import React, { useState } from 'react';
-import { ExchangeId, NormalizedCoinData } from '../types';
+import { ExchangeId, NormalizedCoinData, User } from '../types';
+import { Lock } from 'lucide-react';
 
 interface DerivativesScannerProps {
   coins: NormalizedCoinData[];
   onSelectCoin: (coin: NormalizedCoinData) => void;
   activeExchange: ExchangeId;
+  user?: User | null;
+  onOpenUpgrade?: (context?: string) => void;
 }
 
 export const DerivativesScanner: React.FC<DerivativesScannerProps> = ({
   coins,
   onSelectCoin,
-  activeExchange
+  activeExchange,
+  user,
+  onOpenUpgrade
 }) => {
   const [filterType, setFilterType] = useState<'all' | 'high_oi_growth' | 'high_funding' | 'negative_funding' | 'long_crowded' | 'short_crowded'>('all');
   const [search, setSearch] = useState('');
@@ -239,7 +244,14 @@ export const DerivativesScanner: React.FC<DerivativesScannerProps> = ({
               return (
                 <tr
                   key={coin.id}
-                  onClick={() => onSelectCoin(coin)}
+                  onClick={() => {
+                    if (coin.isLocked) {
+                      if (onOpenUpgrade) onOpenUpgrade(`${coin.symbol} Derivatives Intelligence`);
+                      else onSelectCoin(coin);
+                    } else {
+                      onSelectCoin(coin);
+                    }
+                  }}
                   className="hover:bg-[#0e1626] transition-colors cursor-pointer"
                 >
                   {/* Symbol & Source */}

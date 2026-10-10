@@ -22,7 +22,7 @@ export class RateLimiterService {
   }
 
   public checkLimit(
-    category: 'AUTH' | 'AI' | 'SCANNER' | 'COIN_DETAIL' | 'ALERT' | 'ADMIN',
+    category: 'AUTH' | 'AI' | 'SCANNER' | 'COIN_DETAIL' | 'ALERT' | 'ADMIN' | 'COMMUNITY' | 'NOTIF',
     identifier: string,
     maxRequests: number,
     windowMs: number
@@ -54,7 +54,7 @@ export class RateLimiterService {
   }
 
   public createMiddleware(
-    category: 'AUTH' | 'AI' | 'SCANNER' | 'COIN_DETAIL' | 'ALERT' | 'ADMIN',
+    category: 'AUTH' | 'AI' | 'SCANNER' | 'COIN_DETAIL' | 'ALERT' | 'ADMIN' | 'COMMUNITY' | 'NOTIF',
     maxRequests: number,
     windowMs: number = 60000
   ) {
@@ -108,3 +108,5 @@ export const scannerRateLimit = rateLimiter.createMiddleware('SCANNER', 45, 6000
 export const coinDetailRateLimit = rateLimiter.createMiddleware('COIN_DETAIL', 60, 60000); // 60 req/min
 export const alertRateLimit = rateLimiter.createMiddleware('ALERT', 30, 60000); // 30 req/min
 export const adminRateLimit = rateLimiter.createMiddleware('ADMIN', 60, 60000); // 60 req/min
+export const communityRateLimit = rateLimiter.createMiddleware('COMMUNITY', 30, 60000); // 30 req/min
+export const notifRateLimit = rateLimiter.createMiddleware('NOTIF', 40, 60000); // 40 req/min

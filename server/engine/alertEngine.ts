@@ -1,18 +1,25 @@
 import { Alert, AlertEvent, NormalizedCoinData } from '../../src/types';
 import { db } from '../db/schema';
-import { telegramService } from '../services/telegramService';
+import { notificationService } from '../services/notificationService';
+import { monitoringService } from '../services/monitoringService';
 
 export class AlertEngine {
   public checkAlertsAgainstMarket(coins: NormalizedCoinData[]): AlertEvent[] {
-    const activeAlerts = db.getAllActiveAlerts();
-    if (!activeAlerts.length || !coins.length) return [];
+    if (!coins || !coins.length) return [];
 
     const coinMap = new Map<string, NormalizedCoinData>();
+    const querySymbols: string[] = [];
     for (const c of coins) {
-      coinMap.set(c.symbol.toUpperCase(), c);
+      const symUpper = c.symbol.toUpperCase();
       const clean = c.symbol.replace('/', '').toUpperCase();
+      coinMap.set(symUpper, c);
       coinMap.set(clean, c);
+      querySymbols.push(symUpper, clean);
     }
+
+    // High performance indexed routing: evaluate ONLY active alerts matching the updated coins
+    const activeAlerts = db.getActiveAlertsForSymbols(querySymbols);
+    if (!activeAlerts.length) return [];
 
     const triggeredEvents: AlertEvent[] = [];
     const now = Date.now();
@@ -266,6 +273,61 @@ export class AlertEngine {
             conditionDescription = `Elevated Downside Risk: Downside signal strength elevated to ${triggerValue}/100 (Threshold: >= ${target || 65})`;
           }
           break;
+
+        case 'LARGE_WHALE_TRANSFER': {
+          const largestTx = coin.externalIntelligence?.whaleAggregations?.['1h']?.largestTransferUsd || 0;
+          const threshold = target || 10_000_000;
+          if (largestTx >= threshold) {
+            isTriggered = true;
+            triggerValue = largestTx;
+            conditionDescription = `Large Whale Transfer: On-chain transfer of $${(largestTx / 1e6).toFixed(1)}M detected (Threshold: >= $${(threshold / 1e6).toFixed(1)}M)`;
+          }
+          break;
+        }
+
+        case 'EXCHANGE_INFLOW_SPIKE': {
+          const inflow = coin.externalIntelligence?.whaleAggregations?.['1h']?.exchangeInflowUsd || 0;
+          const threshold = target || 15_000_000;
+          if (inflow >= threshold) {
+            isTriggered = true;
+            triggerValue = inflow;
+            conditionDescription = `Exchange Inflow Surge: $${(inflow / 1e6).toFixed(1)}M deposited to exchanges in past 1h (Threshold: >= $${(threshold / 1e6).toFixed(1)}M)`;
+          }
+          break;
+        }
+
+        case 'EXCHANGE_OUTFLOW_SPIKE': {
+          const outflow = coin.externalIntelligence?.whaleAggregations?.['1h']?.exchangeOutflowUsd || 0;
+          const threshold = target || 15_000_000;
+          if (outflow >= threshold) {
+            isTriggered = true;
+            triggerValue = outflow;
+            conditionDescription = `Exchange Outflow Surge: $${(outflow / 1e6).toFixed(1)}M withdrawn from exchanges in past 1h (Threshold: >= $${(threshold / 1e6).toFixed(1)}M)`;
+          }
+          break;
+        }
+
+        case 'DEX_VOLUME_SPIKE': {
+          const spikeRatio = coin.externalIntelligence?.dexMetrics?.volumeSpikeRatio || 1.0;
+          const threshold = target || 1.8;
+          if (spikeRatio >= threshold) {
+            isTriggered = true;
+            triggerValue = spikeRatio;
+            conditionDescription = `DEX Volume Spike: AMM volume surge at ${spikeRatio.toFixed(2)}x baseline (Threshold: >= ${threshold}x)`;
+          }
+          break;
+        }
+
+        case 'DEX_LIQUIDITY_CHANGE': {
+          const liqChange = Math.abs(coin.externalIntelligence?.dexMetrics?.liquidityChange24hPct || 0);
+          const threshold = target || 5.0;
+          if (liqChange >= threshold) {
+            isTriggered = true;
+            triggerValue = coin.externalIntelligence?.dexMetrics?.liquidityChange24hPct || 0;
+            conditionDescription = `DEX Liquidity Shift: Monitored AMM pool liquidity changed by ${triggerValue > 0 ? '+' : ''}${triggerValue.toFixed(1)}% (Threshold: ±${threshold}%)`;
+          }
+          break;
+        }
       }
 
       if (isTriggered) {
@@ -276,29 +338,155 @@ export class AlertEngine {
           isActive: alert.isRecurring ? true : false
         });
 
-        const event = db.addAlertEvent({
-          alertId: alert.id,
+        // Determine Unified Category & Severity
+        let category: any = 'Bull Signal';
+        let severity: any = 'MEDIUM';
+        let title = `${coin.symbol} Alert Triggered`;
+
+        if (alert.conditionType.includes('BULL_SCORE')) {
+          category = 'Bull Score threshold';
+          severity = 'HIGH';
+          title = `${coin.symbol} Bull Score Threshold Reached`;
+        } else if (alert.conditionType.includes('RISK')) {
+          category = 'Downside Risk threshold';
+          severity = 'HIGH';
+          title = `${coin.symbol} Downside Risk Elevated`;
+        } else if (alert.conditionType.includes('RSI')) {
+          category = 'RSI';
+          severity = 'MEDIUM';
+          title = `${coin.symbol} RSI Alert Triggered`;
+        } else if (alert.conditionType.includes('OI')) {
+          category = 'Open Interest';
+          severity = 'HIGH';
+          title = `${coin.symbol} Open Interest Surge`;
+        } else if (alert.conditionType.includes('FUNDING')) {
+          category = 'Funding';
+          severity = 'MEDIUM';
+          title = `${coin.symbol} Funding Rate Shift`;
+        } else if (alert.conditionType === 'BREAKOUT_DETECTED' || alert.conditionType === 'SIGNAL_BREAKOUT_CONFIRMED') {
+          category = 'Breakout';
+          severity = 'HIGH';
+          title = `${coin.symbol} Breakout Confirmed`;
+        } else if (alert.conditionType === 'BREAKDOWN_DETECTED' || alert.conditionType === 'SIGNAL_BREAKDOWN_CONFIRMED') {
+          category = 'Breakdown';
+          severity = 'HIGH';
+          title = `${coin.symbol} Breakdown Confirmed`;
+        } else if (alert.conditionType === 'RETEST_DETECTED') {
+          category = 'Retest';
+          severity = 'MEDIUM';
+          title = `${coin.symbol} Retest Zone Active`;
+        } else if (alert.conditionType === 'SIGNAL_BULLISH_CONFIRMED') {
+          category = 'Bull Signal';
+          severity = 'HIGH';
+          title = `${coin.symbol} Bullish Continuation Confirmed`;
+        } else if (alert.conditionType === 'SIGNAL_BEARISH_CONFIRMED') {
+          category = 'Bearish Signal';
+          severity = 'HIGH';
+          title = `${coin.symbol} Bearish Signal Confirmed`;
+        } else if (alert.conditionType.includes('PRICE')) {
+          category = 'Breakout';
+          severity = 'MEDIUM';
+          title = `${coin.symbol} Price Alert Triggered`;
+        } else if (alert.conditionType === 'LARGE_WHALE_TRANSFER') {
+          category = 'Whale/On-chain';
+          severity = 'HIGH';
+          title = `${coin.symbol} Large Whale Transfer Detected`;
+          monitoringService.recordExternalAlertGenerated();
+        } else if (alert.conditionType === 'EXCHANGE_INFLOW_SPIKE') {
+          category = 'Whale/On-chain';
+          severity = 'HIGH';
+          title = `${coin.symbol} Exchange Inflow Surge`;
+          monitoringService.recordExternalAlertGenerated();
+        } else if (alert.conditionType === 'EXCHANGE_OUTFLOW_SPIKE') {
+          category = 'Whale/On-chain';
+          severity = 'HIGH';
+          title = `${coin.symbol} Exchange Outflow Surge`;
+          monitoringService.recordExternalAlertGenerated();
+        } else if (alert.conditionType === 'DEX_VOLUME_SPIKE') {
+          category = 'Whale/On-chain';
+          severity = 'MEDIUM';
+          title = `${coin.symbol} DEX Volume Surge`;
+          monitoringService.recordExternalAlertGenerated();
+        } else if (alert.conditionType === 'DEX_LIQUIDITY_CHANGE') {
+          category = 'Whale/On-chain';
+          severity = 'MEDIUM';
+          title = `${coin.symbol} DEX Liquidity Shift`;
+          monitoringService.recordExternalAlertGenerated();
+        }
+
+        // Create and dispatch through Central Notification Service with snapshot & deduplication
+        const isCandleCloseCondition =
+          alert.conditionType === 'SIGNAL_BULLISH_CONFIRMED' ||
+          alert.conditionType === 'SIGNAL_BEARISH_CONFIRMED' ||
+          alert.conditionType === 'SIGNAL_BREAKOUT_CONFIRMED' ||
+          alert.conditionType === 'SIGNAL_BREAKDOWN_CONFIRMED';
+
+        const isCandleClosed = coin.signal ? coin.signal.status === 'CONFIRMED' : true;
+
+        notificationService.createNotification({
           userId: alert.userId,
-          symbol: coin.symbol,
-          exchange: coin.exchange,
-          condition: alert.conditionType,
-          conditionType: alert.conditionType,
-          triggerPrice,
-          actualValue: triggerValue,
-          threshold: alert.threshold ?? (alert.targetValue ?? 0),
-          conditionDescription,
+          category,
+          type: alert.conditionType,
+          severity,
+          title,
           message: conditionDescription,
-          read: false,
-          status: 'TRIGGERED',
-          timestamp: now,
-          triggeredAt: now
-        });
-
-        triggeredEvents.push(event);
-
-        // Asynchronously dispatch to Telegram if configured
-        telegramService.sendAlertNotification(alert.userId, event).catch(err => {
-          console.warn('Telegram notification delivery error:', err.message);
+          symbol: coin.symbol,
+          exchange: coin.exchange || 'BINANCE',
+          marketType: (coin.derivatives ? 'PERPETUAL' : 'SPOT') as any,
+          timeframe: alert.timeframe || '1H',
+          direction: coin.signal?.direction || (category === 'Bull Signal' ? 'BULLISH' : category === 'Bearish Signal' ? 'BEARISH' : 'NEUTRAL'),
+          source: 'Alert Engine',
+          sourceId: alert.id,
+          requiresCandleClose: isCandleCloseCondition,
+          isCandleClosed,
+          isDataFresh: true,
+          snapshot: {
+            triggerPrice,
+            indicatorSnapshot: {
+              rsi: coin.indicators.rsi14,
+              price: coin.price,
+              change24h: coin.change24h
+            },
+            structureSnapshot: {
+              event: coin.marketStructure.event,
+              lastSwingHigh: coin.marketStructure.lastSwingHigh,
+              lastSwingLow: coin.marketStructure.lastSwingLow
+            },
+            scoreSnapshot: {
+              bullScore: coin.scores.bullScore,
+              downsideRiskScore: coin.scores.downsideRiskScore
+            }
+          }
+        }).then(res => {
+          if (res.notification) {
+            // Mirror as alert event
+            triggeredEvents.push({
+              id: res.notification.id,
+              alertId: alert.id,
+              userId: alert.userId,
+              category: res.notification.category as any,
+              type: alert.conditionType,
+              severity: res.notification.severity,
+              exchange: coin.exchange || 'BINANCE',
+              marketId: coin.symbol.replace(/[\/\-_]/g, ''),
+              symbol: coin.symbol,
+              timeframe: alert.timeframe || '1H',
+              title,
+              message: conditionDescription,
+              timestamp: now,
+              source: 'Alert Engine',
+              status: 'TRIGGERED',
+              read: false,
+              triggerValue,
+              threshold: alert.threshold ?? (alert.targetValue ?? 0),
+              triggerPrice,
+              condition: alert.conditionType,
+              conditionDescription,
+              triggeredAt: now
+            });
+          }
+        }).catch(err => {
+          console.warn('[AlertEngine] Notification service error:', err.message);
         });
       }
     }

@@ -11,6 +11,7 @@ import {
   DollarSign,
   Layers,
   Loader2,
+  Lock,
   Percent,
   RefreshCw,
   ShieldAlert,
@@ -18,6 +19,10 @@ import {
   Star,
   TrendingDown,
   TrendingUp,
+  Waves,
+  Database,
+  Scale,
+  ExternalLink,
   X,
   Zap
 } from 'lucide-react';
@@ -40,6 +45,7 @@ import { Candle, ExchangeId, NormalizedCoinData, PriceHistoryPoint, Timeframe, A
 import { MiniPriceHistoryChart } from './MiniPriceHistoryChart';
 import { PercentageAlertModal } from './PercentageAlertModal';
 import { soundAlert } from '../utils/audioAlert';
+import { SignalExplanationModal } from './SignalExplanationModal';
 
 export interface CoinDetailProps {
   coin?: NormalizedCoinData | null;
@@ -49,7 +55,40 @@ export interface CoinDetailProps {
   isSavedInWatchlist: boolean;
   onToggleWatchlist: (symbol: string) => void;
   onOpenAlertModal?: (symbol: string) => void;
+  onOpenUpgradeModal?: (context?: string) => void;
 }
+
+const ProLockedIntelligenceCard: React.FC<{
+  title: string;
+  description: string;
+  featureName: string;
+  onUnlock: () => void;
+}> = ({ title, description, onUnlock }) => (
+  <div className="p-8 rounded-2xl bg-gradient-to-b from-[#0f172a]/95 via-[#0a0f1d]/95 to-[#070b14]/95 border border-amber-500/30 text-center max-w-lg mx-auto my-6 shadow-2xl space-y-4">
+    <div className="w-12 h-12 mx-auto rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+      <Lock className="w-6 h-6" />
+    </div>
+    <div className="space-y-1.5">
+      <div className="inline-flex items-center space-x-1.5 px-3 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/40 text-[10px] font-mono font-bold tracking-wider uppercase">
+        <Lock className="w-3 h-3" />
+        <span>PRO INTELLIGENCE</span>
+      </div>
+      <h3 className="text-base font-bold text-white tracking-wide">{title}</h3>
+      <p className="text-xs text-slate-400 max-w-sm mx-auto leading-relaxed">{description}</p>
+    </div>
+    <div className="pt-2">
+      <button
+        onClick={onUnlock}
+        className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs uppercase tracking-wider transition-all shadow-md shadow-amber-500/20 active:scale-95 cursor-pointer font-mono"
+      >
+        Upgrade to PRO
+      </button>
+    </div>
+    <div className="text-[10px] font-mono text-slate-500">
+      Analytical tools, not financial advice.
+    </div>
+  </div>
+);
 
 export const CoinDetail: React.FC<CoinDetailProps> = ({
   coin: initialCoin,
@@ -58,7 +97,8 @@ export const CoinDetail: React.FC<CoinDetailProps> = ({
   onClose,
   isSavedInWatchlist,
   onToggleWatchlist,
-  onOpenAlertModal
+  onOpenAlertModal,
+  onOpenUpgradeModal
 }) => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -75,7 +115,8 @@ export const CoinDetail: React.FC<CoinDetailProps> = ({
   });
   const [isLoadingTimeframe, setIsLoadingTimeframe] = useState(false);
   const [chartMode, setChartMode] = useState<'area' | 'candles'>('area');
-  const [activeTab, setActiveTab] = useState<'chart' | 'signals' | 'derivatives' | 'structure' | 'scoring_breakdown'>('chart');
+  const [activeTab, setActiveTab] = useState<'chart' | 'signals' | 'derivatives' | 'structure' | 'scoring_breakdown' | 'external_intel'>('chart');
+  const [isExplanationModalOpen, setIsExplanationModalOpen] = useState(false);
   const [isNotFound, setIsNotFound] = useState(false);
   const [isPercentageAlertModalOpen, setIsPercentageAlertModalOpen] = useState(false);
   const [coinAlerts, setCoinAlerts] = useState<Alert[]>([]);
@@ -92,13 +133,9 @@ export const CoinDetail: React.FC<CoinDetailProps> = ({
       const headers: Record<string, string> = {};
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      const res = await fetch('/api/alerts', { headers });
+      const res = await fetch(`/api/alerts?symbol=${encodeURIComponent(sym)}`, { headers });
       if (res.ok) {
-        const allAlerts: Alert[] = await res.json();
-        const cleanTarget = sym.replace(/[\/\-_]/g, '').toUpperCase();
-        const filtered = allAlerts.filter(
-          (a) => a.symbol.replace(/[\/\-_]/g, '').toUpperCase() === cleanTarget
-        );
+        const filtered: Alert[] = await res.json();
         setCoinAlerts(filtered);
       }
     } catch {
@@ -352,15 +389,16 @@ export const CoinDetail: React.FC<CoinDetailProps> = ({
         {/* ========================================== */}
         {/* 1. HEADER SECTION                          */}
         {/* ========================================== */}
-        <div className="p-4 sm:p-5 bg-[#080d16] border-b border-[#18243a] flex flex-wrap items-center justify-between gap-4 sticky top-0 z-20">
-          <div className="flex items-center space-x-3">
+        <div className="p-3 sm:p-5 bg-[#080d16] border-b border-[#18243a] flex flex-wrap items-center justify-between gap-3 relative lg:sticky lg:top-0 z-20">
+          <div className="flex items-center space-x-2 sm:space-x-3">
             <button
               onClick={handleBackToScanner}
-              className="px-3 py-1.5 rounded-xl bg-[#111928] hover:bg-slate-800 text-cyan-400 hover:text-white border border-[#1e2a42] flex items-center space-x-1.5 text-xs font-bold transition-all shadow-sm"
+              className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-[#111928] hover:bg-slate-800 text-cyan-400 hover:text-white border border-[#1e2a42] flex items-center space-x-1 sm:space-x-1.5 text-xs font-bold transition-all shadow-sm flex-shrink-0"
               title="Return to Scanner"
             >
               <ChevronLeft className="w-4 h-4" />
-              <span>← Back to Scanner</span>
+              <span className="hidden sm:inline">← Back to Scanner</span>
+              <span className="sm:hidden">Back</span>
             </button>
 
             <div>
@@ -509,7 +547,17 @@ export const CoinDetail: React.FC<CoinDetailProps> = ({
             <div className="p-3 rounded-xl bg-[#0b111e] border border-[#172236] space-y-1">
               <span className="text-[10px] uppercase text-slate-400">Bull Potential</span>
               <div className="pt-0.5">
-                <ScoreBadge score={scores.bullScore} />
+                {coinData.isLocked || scores.bullScore < 0 ? (
+                  <div className="flex items-center space-x-1.5">
+                    <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold bg-[#0c121e] text-amber-400 border border-amber-500/30">
+                      <Lock className="w-2.5 h-2.5" />
+                      <span>PRO</span>
+                    </span>
+                    <span className="text-slate-500 font-mono tracking-widest text-xs">•• / 100</span>
+                  </div>
+                ) : (
+                  <ScoreBadge score={scores.bullScore} />
+                )}
               </div>
               <div className="text-[10px] text-slate-500">Weight-Engineered</div>
             </div>
@@ -518,7 +566,17 @@ export const CoinDetail: React.FC<CoinDetailProps> = ({
             <div className="p-3 rounded-xl bg-[#0b111e] border border-[#172236] space-y-1">
               <span className="text-[10px] uppercase text-slate-400">Downside Risk</span>
               <div className="pt-0.5">
-                <RiskBadge risk={scores.downsideRiskScore} />
+                {coinData.isLocked || scores.downsideRiskScore < 0 ? (
+                  <div className="flex items-center space-x-1.5">
+                    <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold bg-[#0c121e] text-slate-400 border border-slate-700">
+                      <Lock className="w-2.5 h-2.5" />
+                      <span>PRO</span>
+                    </span>
+                    <span className="text-slate-500 font-mono tracking-widest text-xs">•• / 100</span>
+                  </div>
+                ) : (
+                  <RiskBadge risk={scores.downsideRiskScore} />
+                )}
               </div>
               <div className="text-[10px] text-slate-500">Defense Metric</div>
             </div>
@@ -625,6 +683,21 @@ export const CoinDetail: React.FC<CoinDetailProps> = ({
             }`}
           >
             Score Attribution Model
+          </button>
+          <button
+            onClick={() => setActiveTab('external_intel')}
+            className={`px-3 py-1.5 rounded-lg font-bold transition-all whitespace-nowrap flex items-center space-x-1.5 ${
+              activeTab === 'external_intel'
+                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <span>Whale & DEX Evidence</span>
+            {coinData.externalIntelligence && (
+              <span className="text-[9px] px-1 py-0.2 rounded bg-cyan-950 text-cyan-300 border border-cyan-700 font-bold">
+                {coinData.externalIntelligence.whaleActivityScore}
+              </span>
+            )}
           </button>
         </div>
 
@@ -793,7 +866,14 @@ export const CoinDetail: React.FC<CoinDetailProps> = ({
           {/* TAB: SIGNAL INTELLIGENCE (Phase 7) */}
           {activeTab === 'signals' && (
             <div className="space-y-4">
-              {coinData.signal ? (
+              {coinData.isLocked || coinData.signal?.isLocked ? (
+                <ProLockedIntelligenceCard
+                  title="Signal Intelligence & MTF Confluence"
+                  featureName="Signal Intelligence"
+                  description="Multi-timeframe confluence, institutional triggers, stop invalidation, and signal evidence for this asset are reserved for PRO members."
+                  onUnlock={() => onOpenUpgradeModal ? onOpenUpgradeModal('Signal Intelligence & Confluence') : navigate('/pricing')}
+                />
+              ) : coinData.signal ? (
                 <div className="space-y-4">
                   {/* Top Signal Card */}
                   <div className="p-4 bg-[#0b121f] border border-[#1c2940] rounded-2xl space-y-3">
@@ -815,9 +895,19 @@ export const CoinDetail: React.FC<CoinDetailProps> = ({
                           {coinData.signal.direction}
                         </span>
                       </div>
-                      <div className="text-xs text-slate-400">
-                        Lifecycle: <strong className="text-white">{coinData.signal.status}</strong> •
-                        Exchange Feed: <strong className="text-cyan-300">{coinData.exchange}</strong>
+                      <div className="flex items-center space-x-3 text-xs text-slate-400">
+                        <div>
+                          Lifecycle: <strong className="text-white">{coinData.signal.status}</strong> •
+                          Exchange Feed: <strong className="text-cyan-300">{coinData.exchange}</strong>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setIsExplanationModalOpen(true)}
+                          className="px-3 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 text-xs font-mono font-bold flex items-center space-x-1.5 transition-all shadow-sm shadow-cyan-500/10 active:scale-95 cursor-pointer"
+                        >
+                          <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                          <span>Why This Signal?</span>
+                        </button>
                       </div>
                     </div>
 
@@ -943,7 +1033,14 @@ export const CoinDetail: React.FC<CoinDetailProps> = ({
           {/* TAB 2: DERIVATIVES */}
           {activeTab === 'derivatives' && (
             <div className="space-y-4">
-              {derivatives ? (
+              {coinData.isLocked ? (
+                <ProLockedIntelligenceCard
+                  title="Whale Intelligence & Order Flow"
+                  featureName="Order Flow & Derivatives"
+                  description="Real-time institutional liquidation clusters, open interest delta, funding bias, and on-chain whale flow for this asset are reserved for PRO members."
+                  onUnlock={() => onOpenUpgradeModal ? onOpenUpgradeModal('Order Flow & Derivatives') : navigate('/pricing')}
+                />
+              ) : derivatives ? (
                 <>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
                     <div className="p-3.5 rounded-xl bg-[#0c1320] border border-[#18253b] space-y-1">
@@ -1015,7 +1112,16 @@ export const CoinDetail: React.FC<CoinDetailProps> = ({
           {/* TAB 3: MARKET STRUCTURE */}
           {activeTab === 'structure' && (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+              {coinData.isLocked ? (
+                <ProLockedIntelligenceCard
+                  title="Advanced Market Structure & S/R"
+                  featureName="Market Structure"
+                  description="Multi-timeframe swing levels, break of structure (BOS), and fair value gaps for this asset are reserved for PRO members."
+                  onUnlock={() => onOpenUpgradeModal ? onOpenUpgradeModal('Market Structure & S/R') : navigate('/pricing')}
+                />
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                 <div className="p-3 rounded-xl bg-[#0c1320] border border-[#18253b]">
                   <div className="text-[10px] uppercase text-slate-400">Structural State</div>
                   <div className="text-sm font-bold text-cyan-300 mt-0.5">{marketStructure.state}</div>
@@ -1069,19 +1175,30 @@ export const CoinDetail: React.FC<CoinDetailProps> = ({
                 <strong className="text-white">Structural Synthesis: </strong>
                 {marketStructure.description}
               </div>
-            </div>
-          )}
+            </>
+            )}
+          </div>
+        )}
 
-          {/* TAB 4: SCORING ATTRIBUTION MODEL */}
-          {activeTab === 'scoring_breakdown' && (
-            <div className="space-y-4 text-xs">
-              <div className="p-4 rounded-2xl bg-[#0c1320] border border-[#1a2842] space-y-3">
-                <div className="flex items-center justify-between border-b border-[#18243a] pb-2">
-                  <span className="font-bold text-white uppercase tracking-wider">
-                    BULL SCORE FACTOR ATTRIBUTION (100% SCALE)
-                  </span>
-                  <ScoreBadge score={scores.bullScore} />
-                </div>
+        {/* TAB 4: SCORING ATTRIBUTION MODEL */}
+        {activeTab === 'scoring_breakdown' && (
+          <div className="space-y-4 text-xs">
+            {coinData.isLocked ? (
+              <ProLockedIntelligenceCard
+                title="Advanced Risk Analysis & Factor Attribution"
+                featureName="Scoring Model"
+                description="Multi-factor score weighting, defense metrics, and momentum attribution for this asset are reserved for PRO members."
+                onUnlock={() => onOpenUpgradeModal ? onOpenUpgradeModal('Scoring Factor Attribution') : navigate('/pricing')}
+              />
+            ) : (
+              <>
+                <div className="p-4 rounded-2xl bg-[#0c1320] border border-[#1a2842] space-y-3">
+                  <div className="flex items-center justify-between border-b border-[#18243a] pb-2">
+                    <span className="font-bold text-white uppercase tracking-wider">
+                      BULL SCORE FACTOR ATTRIBUTION (100% SCALE)
+                    </span>
+                    <ScoreBadge score={scores.bullScore} />
+                  </div>
 
                 <div className="space-y-2.5">
                   <div className="flex justify-between items-center text-slate-300">
@@ -1183,8 +1300,157 @@ export const CoinDetail: React.FC<CoinDetailProps> = ({
                   </div>
                 </div>
               </div>
-            </div>
-          )}
+            </>
+            )}
+          </div>
+        )}
+
+        {/* TAB 5: EXTERNAL INTELLIGENCE & DEX ACTIVITY (PHASE 21) */}
+        {activeTab === 'external_intel' && (
+          <div className="space-y-4 text-xs font-mono">
+            {coinData.isLocked ? (
+              <ProLockedIntelligenceCard
+                title="Whale & DEX Intelligence Feed"
+                featureName="External Intelligence"
+                description="Institutional blockchain transactions, AMM liquidity depths, and evidence-weighted confluence models."
+                onUnlock={() => onOpenUpgradeModal?.('external_intel')}
+              />
+            ) : coinData.externalIntelligence ? (
+              <>
+                {/* KPI Header */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="p-3 bg-[#0c121e] border border-cyan-800/40 rounded-xl space-y-1">
+                    <div className="flex items-center justify-between text-[10px] text-slate-400">
+                      <span>Whale Activity Score</span>
+                      <Waves className="w-3.5 h-3.5 text-cyan-400" />
+                    </div>
+                    <div className="text-xl font-bold text-white">
+                      {coinData.externalIntelligence.whaleActivityScore} <span className="text-[10px] text-slate-500 font-normal">/ 100</span>
+                    </div>
+                    <div className="text-[10px] text-cyan-300 font-bold">
+                      {coinData.externalIntelligence.flowRegime?.replace('_', ' ') || 'BALANCED'}
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-[#0c121e] border border-indigo-800/40 rounded-xl space-y-1">
+                    <div className="flex items-center justify-between text-[10px] text-slate-400">
+                      <span>DEX Activity Score</span>
+                      <Database className="w-3.5 h-3.5 text-indigo-400" />
+                    </div>
+                    <div className="text-xl font-bold text-white">
+                      {coinData.externalIntelligence.dexActivityScore} <span className="text-[10px] text-slate-500 font-normal">/ 100</span>
+                    </div>
+                    <div className="text-[10px] text-indigo-300">
+                      AMM Buy Press: <strong className="text-emerald-400">{coinData.externalIntelligence.dexMetrics?.buyPressureScore ?? 50}%</strong>
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-[#0c121e] border border-purple-800/40 rounded-xl space-y-1">
+                    <div className="flex items-center justify-between text-[10px] text-slate-400">
+                      <span>External Evidence Score</span>
+                      <Scale className="w-3.5 h-3.5 text-purple-400" />
+                    </div>
+                    <div className={`text-xl font-bold ${coinData.externalIntelligence.externalEvidenceScore > 0 ? 'text-emerald-400' : coinData.externalIntelligence.externalEvidenceScore < 0 ? 'text-rose-400' : 'text-slate-300'}`}>
+                      {coinData.externalIntelligence.externalEvidenceScore > 0 ? '+' : ''}{coinData.externalIntelligence.externalEvidenceScore}
+                      <span className="text-[10px] text-slate-500 font-normal"> / 100</span>
+                    </div>
+                    <div className="text-[10px] text-purple-300 uppercase">
+                      Bias: {coinData.externalIntelligence.dominantDirection || 'NEUTRAL'}
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-[#0c121e] border border-[#1b253b] rounded-xl space-y-1">
+                    <div className="text-[10px] text-slate-400">Feed Freshness & Quality</div>
+                    <div className="flex items-center space-x-1.5 pt-1">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                      <span className="text-xs font-bold text-white">{coinData.externalIntelligence.freshness || 'LIVE'}</span>
+                    </div>
+                    <div className="text-[10px] text-slate-400">
+                      Quality: <strong className="text-cyan-400">{coinData.externalIntelligence.sourceQuality || 'HIGH'}</strong>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Multi-Window Flow Aggregations */}
+                <div className="p-4 bg-[#0c121e] border border-[#182338] rounded-xl space-y-3">
+                  <div className="flex items-center justify-between border-b border-[#141d2d] pb-2">
+                    <span className="font-bold text-slate-200 flex items-center space-x-1.5">
+                      <Waves className="w-4 h-4 text-cyan-400" />
+                      <span>Multi-Window Whale Flow Aggregations</span>
+                    </span>
+                    <span className="text-[10px] text-slate-400">Rule: Multiple observations required for accumulation bias</span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                    {(['5m', '15m', '1h', '4h', '24h'] as const).map(w => {
+                      const agg = coinData.externalIntelligence?.whaleAggregations?.[w];
+                      const netPos = (agg?.netExchangeFlowUsd ?? 0) >= 0;
+                      return (
+                        <div key={w} className="p-2.5 bg-[#080d16] border border-[#141e30] rounded-lg space-y-1">
+                          <div className="flex items-center justify-between text-[10px]">
+                            <span className="font-bold text-cyan-400">{w}</span>
+                            <span className="text-slate-500">{agg?.whaleTransferCount ?? 0} txns</span>
+                          </div>
+                          <div className="text-[10px] text-slate-400">
+                            Net: <span className={`font-bold ${netPos ? 'text-emerald-400' : 'text-rose-400'}`}>
+                              {netPos ? '+' : ''}${((agg?.netExchangeFlowUsd ?? 0) / 1e6).toFixed(1)}M
+                            </span>
+                          </div>
+                          <div className="text-[9px] text-slate-500 truncate">
+                            {agg?.flowRegime ? agg.flowRegime.replace('_', ' ') : 'BALANCED'}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Evidence Confluence Feed */}
+                <div className="p-4 bg-[#0c121e] border border-[#182338] rounded-xl space-y-3">
+                  <div className="flex items-center justify-between border-b border-[#141d2d] pb-2">
+                    <span className="font-bold text-slate-200 flex items-center space-x-1.5">
+                      <Scale className="w-4 h-4 text-purple-400" />
+                      <span>External Observations & Source Attribution ({coinData.externalIntelligence.evidenceCount})</span>
+                    </span>
+                    <span className="text-[10px] text-slate-500">Neutral evidence-based inputs</span>
+                  </div>
+
+                  <div className="space-y-2">
+                    {(coinData.externalIntelligence.supportingEvidence || []).concat(coinData.externalIntelligence.conflictingEvidence || []).slice(0, 4).map((ev, i) => (
+                      <div key={ev.id || i} className="p-3 bg-[#080d16] border border-[#141e30] rounded-lg space-y-1.5">
+                        <div className="flex items-center justify-between text-[10px]">
+                          <div className="flex items-center space-x-2">
+                            <span className={`px-1.5 py-0.5 rounded font-bold ${ev.direction === 'POSITIVE' ? 'bg-emerald-950 text-emerald-300 border border-emerald-800/40' : 'bg-rose-950 text-rose-300 border border-rose-800/40'}`}>
+                              {ev.category} • {ev.direction}
+                            </span>
+                            <span className="text-slate-400">{ev.source}</span>
+                          </div>
+                          <span className="text-cyan-400 font-bold">{ev.confidence}% CONF</span>
+                        </div>
+                        <p className="text-slate-300 text-xs font-sans leading-relaxed">{ev.description}</p>
+                        {ev.reference && (
+                          <div className="pt-1 text-[10px]">
+                            <a href={ev.reference} target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline flex items-center space-x-1">
+                              <span>Explorer Reference</span>
+                              <ExternalLink className="w-2.5 h-2.5" />
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="p-8 text-center text-slate-500 bg-[#080d16] border border-[#141e30] rounded-2xl space-y-2">
+                <Database className="w-8 h-8 mx-auto text-slate-600" />
+                <div className="font-bold text-slate-400 text-sm">External Intelligence Not Available (N/A)</div>
+                <p className="text-xs text-slate-500 max-w-md mx-auto">
+                  External on-chain feeds and DEX AMM pools are active for major assets (BTC, ETH, SOL, XRP, DOGE). No synthetic or fabricated data is generated for unverified pairs.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
 
           {/* Analytical Disclaimer */}
           <div className="p-3 rounded-xl bg-[#080d16] border border-[#131b2c] text-[10px] text-center text-slate-500">
@@ -1205,6 +1471,16 @@ export const CoinDetail: React.FC<CoinDetailProps> = ({
           }}
           onAlertDeleted={handleAlertDeleted}
           onAlertToggled={handleAlertToggled}
+        />
+      )}
+
+      {/* Phase 30 Signal Explanation & Trust Layer Modal */}
+      {isExplanationModalOpen && coinData && (
+        <SignalExplanationModal
+          coin={coinData}
+          timeframe={(coinData.marketStructure?.timeframe || '1h') as Timeframe}
+          onClose={() => setIsExplanationModalOpen(false)}
+          onOpenUpgrade={(ctx) => onOpenUpgradeModal ? onOpenUpgradeModal(ctx) : navigate('/pricing')}
         />
       )}
     </div>

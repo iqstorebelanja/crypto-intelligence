@@ -82,6 +82,11 @@ export class KrakenAdapter extends BaseFutureExchangeAdapter {
   name = 'Kraken (Future Expansion)';
 }
 
+export class GateAdapter extends BaseFutureExchangeAdapter {
+  id: ExchangeId = 'GATE';
+  name = 'Gate.io (Future Expansion)';
+}
+
 export class BitgetAdapter extends BaseFutureExchangeAdapter {
   id: ExchangeId = 'BITGET';
   name = 'Bitget (Future Expansion)';
@@ -91,3 +96,10 @@ export class KuCoinAdapter extends BaseFutureExchangeAdapter {
   id: ExchangeId = 'KUCOIN';
   name = 'KuCoin (Future Expansion)';
 }
+
+export const coinbaseAdapter = new CoinbaseAdapter();
+export const krakenAdapter = new KrakenAdapter();
+export const gateAdapter = new GateAdapter();
+export const bitgetAdapter = new BitgetAdapter();
+export const kucoinAdapter = new KuCoinAdapter();
+

@@ -258,7 +258,7 @@ export class AssetRegistryService {
             stats.inactiveMarkets = inactiveCount;
             this.universeStats.set(id, stats);
           } catch (exchangeError) {
-            console.warn(`[AssetRegistry] Exchange discovery failed for ${id}:`, (exchangeError as Error).message);
+            console.debug(`[AssetRegistry] Exchange discovery failed for ${id}:`, (exchangeError as Error).message);
             stats.discoveryStatus = 'Offline';
             stats.latencyMs = 999;
             stats.lastDiscovery = now;

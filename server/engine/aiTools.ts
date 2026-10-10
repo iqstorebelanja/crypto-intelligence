@@ -486,6 +486,84 @@ export class AIToolLayer {
     };
   }
 
+  /**
+   * Tool 9: getOrderFlow
+   */
+  public async getOrderFlow(params: {
+    symbol: string;
+    exchange?: ExchangeId;
+    timeframe?: Timeframe;
+  }) {
+    const timeframe = params.timeframe || '1h';
+    const { detail, exchange } = await this.resolveCoin(params.symbol, params.exchange, timeframe);
+
+    if (!detail.coin || !detail.coin.orderFlow) {
+      return {
+        symbol: params.symbol,
+        exchange,
+        available: false,
+        reason: 'Order flow telemetry currently unavailable for this asset or market'
+      };
+    }
+
+    const of = detail.coin.orderFlow;
+    return {
+      symbol: detail.coin.symbol,
+      exchange,
+      timeframe,
+      available: true,
+      dataQuality: of.dataQuality,
+      pressureState: of.pressureState,
+      buySellRatio: of.buySellRatio,
+      aggressiveBuyVolume: of.aggressiveBuyVolume,
+      aggressiveSellVolume: of.aggressiveSellVolume,
+      deltaVolume: of.netAggressiveVolume,
+      cvdCurrent: of.cvd.currentDelta,
+      cvdTrend: of.cvd.currentDelta >= 0 ? 'BUYING_DELTA_EXPANSION' : 'SELLING_DELTA_EXPANSION',
+      divergence: of.divergence,
+      orderBookImbalance: of.orderBookImbalance,
+      orderFlowScore: of.orderFlowScore
+    };
+  }
+
+  /**
+   * Tool 10: getLiquidationIntelligence
+   */
+  public async getLiquidationIntelligence(params: {
+    symbol: string;
+    exchange?: ExchangeId;
+    timeframe?: Timeframe;
+  }) {
+    const timeframe = params.timeframe || '1h';
+    const { detail, exchange } = await this.resolveCoin(params.symbol, params.exchange, timeframe);
+
+    if (!detail.coin || !detail.coin.liquidationIntel) {
+      return {
+        symbol: params.symbol,
+        exchange,
+        available: false,
+        reason: 'Liquidation intelligence unavailable or exchange does not report perpetual liquidations'
+      };
+    }
+
+    const liq = detail.coin.liquidationIntel;
+    return {
+      symbol: detail.coin.symbol,
+      exchange,
+      available: true,
+      dataQuality: liq.dataQuality,
+      isSpike: liq.isSpike,
+      spikeStatus: liq.spikeStatus,
+      spikeMultiple: liq.spikeMultiple,
+      longLiquidations24h: liq.longLiquidations24h,
+      shortLiquidations24h: liq.shortLiquidations24h,
+      totalLiquidations24h: liq.totalLiquidations24h,
+      context: liq.context,
+      clusters: liq.clusters,
+      liquidationActivityScore: liq.liquidationActivityScore
+    };
+  }
+
   private summarizeCoin(c: NormalizedCoinData) {
     return {
       symbol: c.symbol,

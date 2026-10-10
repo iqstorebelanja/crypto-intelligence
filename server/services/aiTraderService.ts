@@ -4,6 +4,7 @@ import { marketQueryParser } from '../engine/marketQueryParser';
 import { monitoringService } from './monitoringService';
 import { assetRegistryService } from './assetRegistryService';
 import { signalEngine } from '../engine/signalEngine';
+import { externalIntelligenceNormalizer } from '../engine/externalIntelligenceNormalizer';
 import {
   AIComparisonResult,
   AIMessage,
@@ -13,7 +14,7 @@ import {
   Timeframe
 } from '../../src/types';
 
-export const MANDATORY_DISCLAIMER = 'DYOR — Do Your Own Research. Not Financial Advice.';
+export const MANDATORY_DISCLAIMER = 'DYOR — not financial advice.';
 
 let geminiClient: GoogleGenAI | null = null;
 
@@ -41,8 +42,20 @@ export class AiTraderService {
       return this.handleComparison(prompt, parsed.targetSymbol, parsed.secondarySymbol, exchange, toolsInvoked);
     }
 
-    if (parsed.intent === 'WHALES') {
+    const lowerPrompt = prompt.toLowerCase();
+
+    if (parsed.intent === 'WHALES' || lowerPrompt.includes('whale') || lowerPrompt.includes('large transfer') || lowerPrompt.includes('exchange flow')) {
       return this.handleWhaleQuery(prompt, parsed.targetSymbol, parsed.filters?.minWhaleUsd, toolsInvoked);
+    }
+
+    if (lowerPrompt.includes('order flow') || lowerPrompt.includes('cvd') || lowerPrompt.includes('orderbook') || lowerPrompt.includes('order book') || lowerPrompt.includes('imbalance')) {
+      const sym = parsed.targetSymbol || 'BTC/USDT';
+      return this.handleOrderFlowQuery(prompt, sym, exchange, toolsInvoked);
+    }
+
+    if (lowerPrompt.includes('liquidation') || lowerPrompt.includes('liquidations') || lowerPrompt.includes('squeeze')) {
+      const sym = parsed.targetSymbol || 'BTC/USDT';
+      return this.handleLiquidationQuery(prompt, sym, exchange, toolsInvoked);
     }
 
     if (parsed.intent === 'SCAN') {
@@ -118,6 +131,16 @@ export class AiTraderService {
         aiToolLayer.getIndicatorConflicts({ symbol, exchange: activeExchange, timeframe: '1h' })
       )
     ]);
+
+    // Fetch Phase 22 External Intelligence Data Layer
+    let externalIntel: any = null;
+    try {
+      if (['BTC', 'ETH', 'SOL', 'XRP', 'DOGE'].includes(baseAsset)) {
+        externalIntel = await externalIntelligenceNormalizer.getIntelligenceSummary(baseAsset, symbol);
+      }
+    } catch {
+      // Keep resilient
+    }
 
     // Construct Bullish, Bearish, and Scenario factors from factual data
     const bullishFactors: string[] = [];
@@ -353,7 +376,7 @@ export class AiTraderService {
     }
 
     // Synthesize natural terminal commentary
-    const rawText = await this.synthesizeWithGeminiOrDeterministic(userPrompt, structuredAnalysis, btcContext, whaleActivity);
+    const rawText = await this.synthesizeWithGeminiOrDeterministic(userPrompt, structuredAnalysis, btcContext, whaleActivity, externalIntel);
     const textContent = exchangeSwitchNote ? `${exchangeSwitchNote}${rawText}` : rawText;
 
     return {
@@ -592,7 +615,7 @@ ${MANDATORY_DISCLAIMER}`;
   }
 
   /**
-   * 7. Whale Activity Query
+   * 7. Whale Activity Query with OBSERVED -> CALCULATED -> INTERPRETATION -> SCENARIO
    */
   private async handleWhaleQuery(
     userPrompt: string,
@@ -608,7 +631,7 @@ ${MANDATORY_DISCLAIMER}`;
       return {
         id: `msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
         role: 'assistant',
-        content: `### ON-CHAIN WHALE INTELLIGENCE: UNAVAILABLE\n\n${whaleData.reason || 'No on-chain data provider configured.'}\n\nPlease connect an on-chain API key (Arkham, Whale Alert) or enable the verified Testnet RPC feed in the Whale Scanner settings.\n\n${MANDATORY_DISCLAIMER}`,
+        content: `### ON-CHAIN WHALE INTELLIGENCE: UNAVAILABLE\n\n${whaleData.reason || 'No on-chain data provider configured.'}\n\nPlease connect an on-chain API key or enable simulated provider in Settings.\n\n${MANDATORY_DISCLAIMER}`,
         toolsInvoked,
         queryType: 'whales',
         disclaimer: MANDATORY_DISCLAIMER,
@@ -617,21 +640,28 @@ ${MANDATORY_DISCLAIMER}`;
     }
 
     const txs = whaleData.transactions || [];
-    const content = `### ON-CHAIN WHALE SURVEILLANCE REPORT
-**Provider:** ${whaleData.provider} • **Scope:** ${symbol || 'ALL PAIRS'} • **Minimum Size:** >= $${((minUsd || 1_000_000) / 1_000_000).toFixed(1)}M USD
+    const netFlow = whaleData.netExchangeFlowUsd || 0;
+    const isOutflow = netFlow < 0;
 
-**AGGREGATE ON-CHAIN SUMMARY:**
-- **Indexed Transactions:** ${whaleData.totalTransactions} blocks
-- **Cumulative USD Volume:** $${((whaleData.totalUsdVolume || 0) / 1_000_000).toFixed(2)}M
-- **Net Exchange Flow:** ${whaleData.netExchangeFlowUsd && whaleData.netExchangeFlowUsd > 0 ? `+$${(whaleData.netExchangeFlowUsd / 1_000_000).toFixed(2)}M Inflow` : `-$${(Math.abs(whaleData.netExchangeFlowUsd || 0) / 1_000_000).toFixed(2)}M Outflow`}
-- **Identified Signals:** \`${whaleData.accumulationSignals || 0}\` Potential Accumulation | \`${whaleData.distributionSignals || 0}\` Potential Distribution
+    const content = `### ON-CHAIN WHALE SURVEILLANCE REPORT: ${symbol || 'MARKET WIDE'}
+**Provider:** ${whaleData.provider} • **Minimum Size:** >= $${((minUsd || 1_000_000) / 1_000_000).toFixed(1)}M USD
 
-**RECENT LARGE BLOCK TRANSACTIONS:**
-${txs.slice(0, 5).map((t, idx) =>
-  `**[Block ${idx + 1}]** ${t.symbol} — \`$${(t.usdValue / 1_000_000).toFixed(2)}M\` (${t.amount.toLocaleString()} coins)
-  - **Type:** ${t.type} (${t.direction.toUpperCase()}) | **Entities:** ${t.fromEntity || 'Unknown'} ➔ ${t.toEntity || 'Unknown'}
-  - **Analytical Note:** ${t.analyticalInterpretation}`
-).join('\n\n')}
+**1. OBSERVED DATA POINTS:**
+- Total large block transfers indexed: \`${whaleData.totalTransactions}\`
+- Aggregate USD value: \`$${((whaleData.totalUsdVolume || 0) / 1_000_000).toFixed(2)}M\`
+- Verified transfers:
+${txs.slice(0, 4).map((t, i) => `  * [Tx ${i + 1}] ${t.symbol}: $${(t.usdValue / 1_000_000).toFixed(2)}M (${t.amount.toLocaleString()} coins) | ${t.fromEntity || 'Wallet'} ➔ ${t.toEntity || 'Exchange'}`).join('\n') || '  * No qualifying transfers above threshold'}
+
+**2. CALCULATED METRICS:**
+- Net Exchange Flow: \`${isOutflow ? '-' : '+'}$${(Math.abs(netFlow) / 1_000_000).toFixed(2)}M\` (${isOutflow ? 'Net Outflow / Withdrawals' : 'Net Inflow / Deposits'})
+- Accumulation signals: \`${whaleData.accumulationSignals || 0}\` | Distribution signals: \`${whaleData.distributionSignals || 0}\`
+
+**3. ANALYTICAL INTERPRETATION:**
+- ${isOutflow ? 'Large transfer activity detected reflecting an accumulation context characterized by repeated exchange withdrawals. Transfer alone does not establish directional intent or guarantee price appreciation.' : 'Large transfer activity detected reflecting potential distribution context characterized by exchange deposits. Note that exchange deposits can be relevant to sell-side liquidity, but do not guarantee immediate selling.'}
+
+**4. CONDITIONAL SCENARIOS:**
+- **Bullish Confluence:** If exchange withdrawals continue alongside spot price consolidation above local swing support, supply absorption context remains favored.
+- **Distribution Risk:** If inflows persist into spot order books and order-book depth tilts to sell-side imbalance, watch for local liquidity pressure.
 
 ${MANDATORY_DISCLAIMER}`;
 
@@ -641,6 +671,129 @@ ${MANDATORY_DISCLAIMER}`;
       content,
       toolsInvoked,
       queryType: 'whales',
+      disclaimer: MANDATORY_DISCLAIMER,
+      timestamp: Date.now()
+    };
+  }
+
+  /**
+   * 8. Order Flow Intelligence Query
+   */
+  private async handleOrderFlowQuery(
+    userPrompt: string,
+    symbol: string,
+    exchange: ExchangeId,
+    toolsInvoked: AIToolInvocation[]
+  ): Promise<AIMessage> {
+    const of = await this.timedCall('getOrderFlow', { symbol, exchange }, toolsInvoked, () =>
+      aiToolLayer.getOrderFlow({ symbol, exchange, timeframe: '1h' })
+    );
+
+    if (!of.available) {
+      return {
+        id: `msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        role: 'assistant',
+        content: `### ORDER FLOW INTELLIGENCE: UNAVAILABLE\n\n${of.reason || 'Order flow telemetry currently unavailable for this market.'}\n\n${MANDATORY_DISCLAIMER}`,
+        toolsInvoked,
+        queryType: 'general',
+        disclaimer: MANDATORY_DISCLAIMER,
+        timestamp: Date.now()
+      };
+    }
+
+    const imb = of.orderBookImbalance;
+    const div = of.divergence;
+
+    const content = `### QUANTITATIVE ORDER FLOW AUDIT: ${of.symbol}
+**Exchange:** ${exchange} • **Timeframe:** 1H • **Data Quality:** \`${of.dataQuality}\`
+
+**1. OBSERVED DATA POINTS:**
+- Aggressive Buyer Volume: \`${(of.aggressiveBuyVolume ?? 0).toLocaleString()}\` coins
+- Aggressive Seller Volume: \`${(of.aggressiveSellVolume ?? 0).toLocaleString()}\` coins
+- Net Delta Volume: \`${(of.deltaVolume ?? 0) >= 0 ? '+' : ''}${(of.deltaVolume ?? 0).toLocaleString()}\` coins
+- Cumulative Volume Delta (CVD): \`${(of.cvdCurrent ?? 0) >= 0 ? '+' : ''}${(of.cvdCurrent ?? 0).toFixed(2)}\` (${of.cvdTrend || 'NEUTRAL'} trend)
+
+**2. CALCULATED METRICS:**
+- Buy/Sell Ratio: \`${(of.buySellRatio ?? 1).toFixed(2)}x\`
+- Pressure State: \`${of.pressureState}\`
+- Order-Book Imbalance (1-2% Depth): \`${imb ? `${imb.state} (${(imb.imbalanceRatio * 100).toFixed(1)}%)` : 'Balanced'}\`
+- Divergence: \`${div?.detected ? div.type : 'None Detected'}\`
+
+**3. ANALYTICAL INTERPRETATION:**
+- ${of.pressureState === 'BUYING_PRESSURE' ? 'Aggressive buying pressure detected with positive CVD delta and dominant taker buy execution.' : of.pressureState === 'SELLING_PRESSURE' ? 'Aggressive selling pressure detected with negative CVD delta and dominant taker sell execution.' : 'Balanced order flow observed with neutral taker activity.'} ${div?.detected ? `Caution: ${div.description}.` : ''}
+
+**4. CONDITIONAL SCENARIOS:**
+- **Continuation Scenario:** If positive CVD delta sustains and order-book buy-side depth absorbs pullbacks, buyers retain auction control.
+- **Exhaustion Scenario:** If price prints new highs while CVD flattens or rolls over (divergence), watch for taker exhaustion.
+
+${MANDATORY_DISCLAIMER}`;
+
+    return {
+      id: `msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      role: 'assistant',
+      content,
+      toolsInvoked,
+      queryType: 'general',
+      disclaimer: MANDATORY_DISCLAIMER,
+      timestamp: Date.now()
+    };
+  }
+
+  /**
+   * 9. Liquidation Intelligence Query
+   */
+  private async handleLiquidationQuery(
+    userPrompt: string,
+    symbol: string,
+    exchange: ExchangeId,
+    toolsInvoked: AIToolInvocation[]
+  ): Promise<AIMessage> {
+    const liq = await this.timedCall('getLiquidationIntelligence', { symbol, exchange }, toolsInvoked, () =>
+      aiToolLayer.getLiquidationIntelligence({ symbol, exchange, timeframe: '1h' })
+    );
+
+    if (!liq.available) {
+      return {
+        id: `msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        role: 'assistant',
+        content: `### LIQUIDATION INTELLIGENCE: UNAVAILABLE\n\n${liq.reason || 'Liquidation telemetry unavailable for this market.'}\n\n${MANDATORY_DISCLAIMER}`,
+        toolsInvoked,
+        queryType: 'general',
+        disclaimer: MANDATORY_DISCLAIMER,
+        timestamp: Date.now()
+      };
+    }
+
+    const clusters = liq.clusters || [];
+
+    const content = `### LIQUIDATION INTELLIGENCE AUDIT: ${liq.symbol}
+**Exchange:** ${exchange} • **Status:** \`${liq.spikeStatus}\` • **Score:** \`${liq.liquidationActivityScore}/100\`
+
+**1. OBSERVED DATA POINTS:**
+- Total 24H Liquidations: \`$${(((liq.totalLiquidations24h ?? 0)) / 1_000_000).toFixed(2)}M\`
+  * Long Liquidations: \`$${(((liq.longLiquidations24h ?? 0)) / 1_000_000).toFixed(2)}M\`
+  * Short Liquidations: \`$${(((liq.shortLiquidations24h ?? 0)) / 1_000_000).toFixed(2)}M\`
+- Spike Multiple vs 20-period baseline: \`${liq.spikeMultiple}x\` (${liq.isSpike ? 'ELEVATED ACTIVITY' : 'Normal Baseline'})
+
+**2. CALCULATED CLUSTERS:**
+${clusters.slice(0, 3).map((c: any, i: number) => `* [Cluster ${i + 1}] $${c.priceRange[0]} - $${c.priceRange[1]} (Est. Vol: $${(c.totalLiquidation / 1_000_000).toFixed(2)}M | Intensity: ${c.intensity})`).join('\n') || '* No dense liquidation clusters within current price envelope'}
+
+**3. ANALYTICAL INTERPRETATION:**
+- Context: \`${liq.context?.relation || 'NEUTRAL'}\`
+- ${liq.context?.description || 'Standard baseline liquidation activity.'}
+
+**4. CONDITIONAL SCENARIOS:**
+- **Squeeze / Extension:** If price sweeps into adjacent liquidation cluster bands and open interest accelerates, short-term volatility expansion is probable.
+- **Flush Completion:** Post-spike liquidation cascades typically subside when CVD delta flattens and volume normalizes back to baseline.
+
+${MANDATORY_DISCLAIMER}`;
+
+    return {
+      id: `msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      role: 'assistant',
+      content,
+      toolsInvoked,
+      queryType: 'general',
       disclaimer: MANDATORY_DISCLAIMER,
       timestamp: Date.now()
     };
@@ -690,7 +843,8 @@ ${MANDATORY_DISCLAIMER}`;
     userPrompt: string,
     analysis: StructuredAIAnalysis,
     btcContext: any,
-    whaleActivity: any
+    whaleActivity: any,
+    externalIntel: any = null
   ): Promise<string> {
     const ai = getGemini();
 
@@ -701,20 +855,20 @@ CRITICAL RULES:
 1. You MUST NOT answer from general knowledge alone. You MUST use only the verified tool facts provided in the prompt.
 2. Clearly separate:
    - OBSERVED: Live prices, 24h change, trading volume, order-book stats, on-chain flows.
-   - CALCULATED: RSI 6/14, Moving Averages, Bollinger Bands, Bull Score, Downside Risk, Market Structure.
-   - INTERPRETATION: Analytical synthesis explaining the observed and calculated metrics.
+   - CALCULATED: RSI 6/14, Moving Averages, Bollinger Bands, Bull Score, Downside Risk, Market Structure, Whale & DEX scores.
+   - INTERPRETATION: Analytical synthesis explaining the observed and calculated metrics. Cite external source if external data is referenced (e.g., "External evidence from [provider] shows...").
    - SCENARIOS: Explicitly label hypothetical paths: [BULLISH SCENARIO], [NEUTRAL SCENARIO], [BEARISH SCENARIO].
 3. If data is unavailable, write "N/A". Never invent missing metrics.
 4. Conclude with the mandatory disclaimer verbatim:
-DYOR — Do Your Own Research.
-Not Financial Advice.`;
+DYOR — not financial advice.`;
 
         const userContent = `Analyze user request: "${userPrompt}"
 Verified Grounded Data:
 ${JSON.stringify({
   analysis,
   btcContext,
-  whaleActivity
+  whaleActivity,
+  externalIntel
 }, null, 2)}`;
 
         const response = await Promise.race([
@@ -730,10 +884,19 @@ ${JSON.stringify({
 
         if (response && response.text) {
           let text = response.text.trim();
-          if (!text.includes('DYOR — Do Your Own Research')) {
-            text += `\n\n${MANDATORY_DISCLAIMER}`;
+          const hasRequiredSections =
+            text.includes('OBSERVED') &&
+            text.includes('CALCULATED') &&
+            text.includes('INTERPRETATION') &&
+            text.includes('SCENARIO');
+
+          if (hasRequiredSections) {
+            if (!text.includes('DYOR — not financial advice')) {
+              text += `\n\nDYOR — not financial advice.`;
+            }
+            return text;
           }
-          return text;
+          // If Gemini returned non-standard headings, fall through to deterministic output
         }
       } catch (err) {
         console.warn('Gemini API call failed, utilizing deterministic research synthesis:', (err as Error).message);
@@ -742,6 +905,14 @@ ${JSON.stringify({
 
     // Deterministic Research Terminal Output
     const sig = analysis.signalEngine;
+    const extObserved = externalIntel && externalIntel.evidenceCount > 0
+      ? `\n- **On-Chain & DEX Evidence:** External evidence from \`${externalIntel.supportingEvidence[0]?.source || 'On-Chain Ledger & Whale Intelligence Feed'}\` shows \`${externalIntel.flowRegime?.replace('_', ' ')}\` flow regime with \`${externalIntel.evidenceCount}\` verified observations.`
+      : '';
+
+    const extCalculated = externalIntel
+      ? `\n- **External Intelligence Metrics:** Whale Activity Score: \`${externalIntel.whaleActivityScore}/100\` | DEX AMM Score: \`${externalIntel.dexActivityScore}/100\` | Net Evidence Score: \`${externalIntel.externalEvidenceScore > 0 ? '+' : ''}${externalIntel.externalEvidenceScore}/100\` (Bias: \`${externalIntel.dominantDirection}\`)`
+      : '';
+
     return `### CRYPTO INTELLIGENCE AI RESEARCH TERMINAL: ${analysis.symbol}
 **Exchange:** ${analysis.exchange} • **Market:** ${analysis.market} • **Timeframe:** 1H • **Status:** ${analysis.marketData.dataFreshness}
 
@@ -751,7 +922,7 @@ ${JSON.stringify({
 - **Volume:** \`$${analysis.marketData.volume.toLocaleString()}\` (Ratio vs 20-period avg: \`${analysis.technical.volumeRatio}x\`)
 - **Open Interest:** \`${analysis.derivatives.openInterest}\` (24h Change: \`${analysis.derivatives.openInterestChange}\`)
 - **Funding Rate:** \`${analysis.derivatives.fundingRate}\` | **24h Liquidations:** \`${analysis.derivatives.liquidations}\`
-- **Macro BTC Price:** \`$${btcContext.price.toLocaleString()}\` (${btcContext.change24h >= 0 ? '+' : ''}${btcContext.change24h.toFixed(2)}%)
+- **Macro BTC Price:** \`$${btcContext.price.toLocaleString()}\` (${btcContext.change24h >= 0 ? '+' : ''}${btcContext.change24h.toFixed(2)}%)${extObserved}
 
 ### 2. CALCULATED (Indicators, Scores & Signal Confluence)
 - **Technical Indicators:** RSI14: \`${analysis.technical.rsi14}\` | MA20: \`$${analysis.technical.ma20.toLocaleString()}\` (${analysis.technical.priceVsMa20}) | MA50: \`$${analysis.technical.ma50.toLocaleString()}\` (${analysis.technical.priceVsMa50}) | MA200: \`$${analysis.technical.ma200.toLocaleString()}\` (${analysis.technical.priceVsMa200})
@@ -759,14 +930,16 @@ ${JSON.stringify({
 - **Quantitative Scores:** Bull Potential: \`${analysis.scores.bullScore}/100\` | Downside Risk: \`${analysis.scores.downsideRisk}/100\`
 - **Signal Engine Status:** ${sig ? `\`${sig.currentSignal}\` (${sig.signalDirection}) | Strength: \`${sig.signalStrength}/100\` | Confidence: \`${sig.confidence}/100\` | Status: \`${sig.signalStatus}\`` : `\`${analysis.scores.signal}\``}
 - **Multi-Timeframe Alignment:** ${sig?.multiTimeframeSummary ? sig.multiTimeframeSummary.summaryText : 'Evaluating MTF trend alignment'}
-- **Calculated Invalidation Level:** ${sig?.invalidationPrice ? `\`$${sig.invalidationPrice.toLocaleString()}\` (${sig.invalidationReason})` : 'Dynamic based on structural swing boundary'}
+- **Calculated Invalidation Level:** ${sig?.invalidationPrice ? `\`$${sig.invalidationPrice.toLocaleString()}\` (${sig.invalidationReason})` : 'Dynamic based on structural swing boundary'}${extCalculated}
 
 ### 3. INTERPRETATION (Analytical Conclusion & Signal Engine Reasoning)
 ${analysis.why}
 **Supporting Evidence:**
 ${sig?.supportingEvidence && sig.supportingEvidence.length > 0 ? sig.supportingEvidence.map(e => `- ${e}`).join('\n') : analysis.bullishFactors.map(f => `- ${f}`).join('\n')}
+${externalIntel?.supportingEvidence?.slice(0, 2).map((e: any) => `- On-Chain Corroboration (${e.source}): ${e.description}`).join('\n') || ''}
 **Conflicting Evidence / Risk Factors:**
 ${sig?.conflictingEvidence && sig.conflictingEvidence.length > 0 ? sig.conflictingEvidence.map(e => `- ${e}`).join('\n') : analysis.bearishFactors.map(f => `- ${f}`).join('\n')}
+${externalIntel?.conflictingEvidence?.slice(0, 2).map((e: any) => `- On-Chain Friction (${e.source}): ${e.description}`).join('\n') || ''}
 
 ### 4. SCENARIO (Hypothetical Future Path)
 - **[BULLISH SCENARIO]:** ${analysis.scenarios.bullish}

@@ -451,6 +451,104 @@ export class WhaleProviderManager {
     }));
   }
 
+  public getCapabilities(): Array<{
+    providerId: string;
+    providerName: string;
+    supportedChains: string[];
+    features: {
+      transfers: boolean;
+      exchangeWallets: boolean;
+      largeTransfers: boolean;
+      addressLabels: boolean;
+      historical: boolean;
+      realtime: boolean;
+    };
+    status: 'CONNECTED' | 'DISCONNECTED';
+  }> {
+    return Array.from(this.providers.values()).map(p => {
+      const caps: any = p.getCapabilities();
+      const health = p.getProviderHealth();
+      return {
+        providerId: p.id === 'SIMULATED_RPC' ? 'simulated' : p.id.toLowerCase(),
+        providerName: p.name,
+        supportedChains: caps.supportedChains || health.supportedChains || ['Bitcoin', 'Ethereum', 'Solana'],
+        features: {
+          transfers: Boolean(caps.transfers ?? caps.supportsTransfers),
+          exchangeWallets: Boolean(caps.exchangeWallets ?? caps.supportsExchangeWallets),
+          largeTransfers: Boolean(caps.largeTransfers ?? caps.supportsLargeTransfers),
+          addressLabels: Boolean(caps.addressLabels ?? caps.supportsAddressLabels),
+          historical: Boolean(caps.historicalData ?? caps.supportsHistoricalData),
+          realtime: Boolean(caps.realtimeData ?? caps.supportsRealtimeData)
+        },
+        status: p.isConfigured() ? 'CONNECTED' : 'DISCONNECTED'
+      };
+    });
+  }
+
+  public deduplicateTransfers(transfers: WhaleTransfer[]): WhaleTransfer[] {
+    const seen = new Set<string>();
+    const result: WhaleTransfer[] = [];
+    for (const t of transfers) {
+      const key = t.transactionHash || `${t.sourceAddress || ''}_${t.destinationAddress || ''}_${t.timestamp}_${t.amount}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        result.push(t);
+      }
+    }
+    return result;
+  }
+
+  public lookupLabel(address: string): { exchange: string; label: string } | null {
+    const found = VERIFIED_EXCHANGE_ADDRESSES[address];
+    if (!found) return null;
+    const exMap: Record<string, string> = {
+      BINANCE: 'Binance',
+      COINBASE: 'Coinbase',
+      KRAKEN: 'Kraken',
+      BITFINEX: 'Bitfinex',
+      OKX: 'OKX',
+      BYBIT: 'Bybit'
+    };
+    return {
+      exchange: exMap[found.exchange] || found.exchange,
+      label: found.label
+    };
+  }
+
+  public summarizeExchangeFlows(asset: string, transfers: WhaleTransfer[]) {
+    const deposits = transfers.filter(t => t.eventType === 'EXCHANGE_DEPOSIT' || t.direction === 'WALLET_TO_EXCHANGE');
+    const withdrawals = transfers.filter(t => t.eventType === 'EXCHANGE_WITHDRAWAL' || t.direction === 'EXCHANGE_TO_WALLET');
+    const depositUsd = deposits.reduce((acc, t) => acc + (t.usdValue || 0), 0);
+    const withdrawalUsd = withdrawals.reduce((acc, t) => acc + (t.usdValue || 0), 0);
+    const netFlowUsd = depositUsd - withdrawalUsd;
+
+    let flowContext: 'ACCUMULATION_CONTEXT' | 'DISTRIBUTION_CONTEXT' | 'BALANCED_FLOW' = 'BALANCED_FLOW';
+    if (withdrawals.length > 0 && netFlowUsd < 0) {
+      flowContext = 'ACCUMULATION_CONTEXT';
+    } else if (deposits.length > 0 && netFlowUsd > 0) {
+      flowContext = 'DISTRIBUTION_CONTEXT';
+    }
+
+    return {
+      asset,
+      depositCount: deposits.length,
+      withdrawalCount: withdrawals.length,
+      depositUsd,
+      withdrawalUsd,
+      netFlowUsd,
+      flowContext
+    };
+  }
+
+  public async getExchangeFlows(asset: string = 'BTC') {
+    const transfers = await this.getLargeTransfers(asset);
+    return this.summarizeExchangeFlows(asset, transfers);
+  }
+
+  public getHealth() {
+    return Array.from(this.providers.values()).map(p => p.getProviderHealth());
+  }
+
   public setActiveProvider(providerId: string): boolean {
     if (this.providers.has(providerId)) {
       this.activeProviderId = providerId;
@@ -512,16 +610,8 @@ export class WhaleProviderManager {
     const src = explicitSource || this.classifyAddress(sourceAddress);
     const dst = explicitDest || this.classifyAddress(destAddress);
 
-    if (src.type === 'UNKNOWN' && dst.type === 'UNKNOWN') {
-      return {
-        direction: 'UNKNOWN',
-        eventType: 'UNKNOWN',
-        sourceEntity: src,
-        destinationEntity: dst
-      };
-    }
-
-    if (src.type === 'WALLET' && dst.type === 'EXCHANGE') {
+    // If destination is a known exchange and source is not
+    if (dst.type === 'EXCHANGE' && src.type !== 'EXCHANGE') {
       return {
         direction: 'WALLET_TO_EXCHANGE',
         eventType: 'EXCHANGE_DEPOSIT',
@@ -530,7 +620,8 @@ export class WhaleProviderManager {
       };
     }
 
-    if (src.type === 'EXCHANGE' && dst.type === 'WALLET') {
+    // If source is a known exchange and destination is not
+    if (src.type === 'EXCHANGE' && dst.type !== 'EXCHANGE') {
       return {
         direction: 'EXCHANGE_TO_WALLET',
         eventType: 'EXCHANGE_WITHDRAWAL',
@@ -539,6 +630,7 @@ export class WhaleProviderManager {
       };
     }
 
+    // If both are known exchanges
     if (src.type === 'EXCHANGE' && dst.type === 'EXCHANGE') {
       return {
         direction: 'EXCHANGE_TO_EXCHANGE',
@@ -548,15 +640,7 @@ export class WhaleProviderManager {
       };
     }
 
-    if (src.type === 'WALLET' && dst.type === 'WALLET') {
-      return {
-        direction: 'WALLET_TO_WALLET',
-        eventType: 'LARGE_TRANSFER',
-        sourceEntity: src,
-        destinationEntity: dst
-      };
-    }
-
+    // Neither is a known exchange
     return {
       direction: 'UNKNOWN',
       eventType: 'UNKNOWN',

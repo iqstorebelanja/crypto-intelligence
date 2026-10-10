@@ -4,6 +4,7 @@ import { okxAdapter } from '../adapters/okxAdapter';
 import { pionexAdapter } from '../adapters/pionexAdapter';
 import { IExchangeAdapter } from '../adapters/exchangeAdapter';
 import { alertEngine } from '../engine/alertEngine';
+import { notificationEngine } from './notificationEngine';
 import { derivativesEngine } from '../engine/derivativesEngine';
 import { analyzeMarketStructure } from '../engine/marketStructure';
 import { scoringEngine } from '../engine/scoringEngine';
@@ -11,11 +12,13 @@ import { computeTechnicalIndicators } from '../engine/technicalIndicators';
 import { signalEngine } from '../engine/signalEngine';
 import { orderFlowEngine } from '../engine/orderFlowEngine';
 import { liquidationEngine } from '../engine/liquidationEngine';
+import { externalIntelligenceNormalizer } from '../engine/externalIntelligenceNormalizer';
 import { whaleProviderManager } from '../adapters/whaleProvider';
 import { db } from '../db/schema';
 import { assetRegistryService } from './assetRegistryService';
 import { exchangeCapabilityRegistry } from './capabilityRegistry';
-import { marketDataCache } from './marketDataCache';
+import { MarketDataCache, marketDataCache } from './marketDataCache';
+import { monitoringService } from './monitoringService';
 import { pipelineLogger } from './pipelineLogger';
 import { realtimeStreamManager } from './realtimeStreamManager';
 import { singleFlight } from './singleFlight';
@@ -25,11 +28,16 @@ import {
   BtcMarketCondition,
   Candle,
   ExchangeId,
+  LiquidationEvent,
+  LiquidationIntelligenceSnapshot,
   MarketOverview,
   MarketSentimentData,
   NormalizedCoinData,
+  OrderFlowSnapshot,
   PriceHistoryPoint,
-  Timeframe
+  RawTradeInput,
+  Timeframe,
+  WhaleTransfer
 } from '../../src/types';
 
 export class MarketDataService {
@@ -41,7 +49,7 @@ export class MarketDataService {
   constructor() {
     // Initial discovery trigger on service start
     assetRegistryService.runDiscovery().catch(err => {
-      console.warn('Initial asset discovery warning:', (err as Error).message);
+      console.debug('Initial asset discovery warning:', (err as Error).message);
     });
   }
 
@@ -138,8 +146,25 @@ export class MarketDataService {
             const confirmedCandles = DataValidator.extractConfirmedCandles(validatedEngineCandles);
             const effectiveCandles = confirmedCandles.length >= 10 ? confirmedCandles : rawCandles;
 
-            const indicators = computeTechnicalIndicators(effectiveCandles);
-            const structure = analyzeMarketStructure(effectiveCandles, '1h', 5);
+            // Phase 19: High-efficiency candle signature cache
+            const mktType = ticker.marketType || (normEx === 'BYBIT' ? 'PERPETUAL' : 'SPOT');
+            const lastCandle = effectiveCandles.length > 0 ? effectiveCandles[effectiveCandles.length - 1] : null;
+            const candleSig = lastCandle ? `${(lastCandle as any).time || (lastCandle as any).timestamp}_${lastCandle.close}` : 'nocandle';
+
+            const indKey = MarketDataCache.buildKey(normEx, ticker.rawSymbol, mktType, '1h', 'indicators', ticker.symbol) + `:${candleSig}`;
+            const structKey = MarketDataCache.buildKey(normEx, ticker.rawSymbol, mktType, '1h', 'structure', ticker.symbol) + `:${candleSig}`;
+
+            let indicators = marketDataCache.get<any>(indKey);
+            if (!indicators) {
+              indicators = computeTechnicalIndicators(effectiveCandles);
+              marketDataCache.set(indKey, 'indicators', indicators, 25000);
+            }
+
+            let structure = marketDataCache.get<any>(structKey);
+            if (!structure) {
+              structure = analyzeMarketStructure(effectiveCandles, '1h', 5);
+              marketDataCache.set(structKey, 'structure', structure, 25000);
+            }
 
             // Reconcile live price from WebSocket if available
             const liveTick = realtimeStreamManager.getLiveTicker(normEx, ticker.rawSymbol);
@@ -214,12 +239,21 @@ export class MarketDataService {
         normalizedCoins.push(...processed);
       }
 
+      // Record scanner latency
+      const scannerDuration = Date.now() - now;
+      monitoringService.recordScannerLatency(normEx, scannerDuration, normalizedCoins.length);
+
       // Enrich all scanned coins with Signal Intelligence Engine signals
+      const tSigStart = Date.now();
       const btcCoin = normalizedCoins.find(
         c => c.symbol.toUpperCase().includes('BTC/USDT') || c.symbol.toUpperCase().includes('BTCUSDT')
       );
       for (const coin of normalizedCoins) {
         try {
+          const cleanBase = coin.baseAsset.toUpperCase();
+          if (['BTC', 'ETH', 'SOL', 'XRP', 'DOGE'].includes(cleanBase)) {
+            coin.externalIntelligence = await externalIntelligenceNormalizer.getIntelligenceSummary(cleanBase, coin.symbol);
+          }
           const sig = signalEngine.evaluateSignal(coin, undefined, btcCoin, true);
           coin.signal = sig;
           coin.multiTimeframeSummary = sig.multiTimeframeSummary;
@@ -227,11 +261,15 @@ export class MarketDataService {
           // Keep resilient
         }
       }
+      monitoringService.recordSignalEngineLatency(Date.now() - tSigStart, normalizedCoins.length);
 
       this.exchangeCache.set(normEx, { coins: normalizedCoins, timestamp: now });
 
-      // Run Alert Engine on newly scanned coins in the background
-      alertEngine.checkAlertsAgainstMarket(normalizedCoins);
+      // Run Alert Engine on newly scanned coins in the background with indexed routing
+      const tAlertStart = Date.now();
+      const triggered = alertEngine.checkAlertsAgainstMarket(normalizedCoins);
+      monitoringService.recordAlertEngineLatency(Date.now() - tAlertStart, triggered.length);
+      notificationEngine.evaluateMarketTriggers(normalizedCoins);
 
       return this.enrichFreshness(normalizedCoins);
     } catch (err) {
@@ -668,6 +706,97 @@ export class MarketDataService {
 
     const asset = assetRegistryService.getAsset(baseAsset);
 
+    // 1. Order Flow Analytics
+    let orderFlow: OrderFlowSnapshot | null = null;
+    try {
+      const obInput = orderBookSnap && orderBookSnap.bids && orderBookSnap.asks ? {
+        bids: orderBookSnap.bids.map(b => ({ price: b[0], quantity: b[1] })),
+        asks: orderBookSnap.asks.map(a => ({ price: a[0], quantity: a[1] })),
+        timestamp: orderBookSnap.timestamp || Date.now()
+      } : null;
+
+      const recentTrades: RawTradeInput[] = candles.slice(-20).map(c => {
+        const isUp = c.close >= c.open;
+        return {
+          tradeId: `tr_${normExchange}_${cleanRaw}_${c.time}`,
+          exchange: normExchange,
+          symbol: cleanFormatted,
+          marketType: normExchange === 'BYBIT' ? 'PERPETUAL' : 'SPOT',
+          price: c.close,
+          quantity: c.volume,
+          side: isUp ? 'BUY' : 'SELL',
+          timestamp: c.time,
+          source: `${normExchange} Trades`
+        };
+      });
+
+      orderFlow = orderFlowEngine.evaluateOrderFlow(
+        cleanFormatted,
+        normExchange,
+        timeframe,
+        recentTrades,
+        obInput,
+        candles
+      );
+    } catch (err) {
+      console.warn('Order flow evaluation failed:', (err as Error).message);
+    }
+
+    // 2. Liquidation Intelligence Analytics
+    let liquidationIntel: LiquidationIntelligenceSnapshot | null = null;
+    try {
+      const liqEvents: LiquidationEvent[] = [];
+      if (liqSnap) {
+        if (liqSnap.long24h && liqSnap.long24h > 0) {
+          liqEvents.push({
+            id: `liq_${normExchange}_l_${Date.now() - 3600_000}`,
+            exchange: normExchange,
+            symbol: cleanFormatted,
+            marketType: 'PERPETUAL',
+            timestamp: Date.now() - 3600_000,
+            side: 'LONG_LIQUIDATION',
+            price: price * 0.98,
+            quantity: liqSnap.long24h / (price * 0.98),
+            notionalUsd: liqSnap.long24h,
+            source: `${normExchange} Liquidation Feed`
+          });
+        }
+        if (liqSnap.short24h && liqSnap.short24h > 0) {
+          liqEvents.push({
+            id: `liq_${normExchange}_s_${Date.now() - 1800_000}`,
+            exchange: normExchange,
+            symbol: cleanFormatted,
+            marketType: 'PERPETUAL',
+            timestamp: Date.now() - 1800_000,
+            side: 'SHORT_LIQUIDATION',
+            price: price * 1.02,
+            quantity: liqSnap.short24h / (price * 1.02),
+            notionalUsd: liqSnap.short24h,
+            source: `${normExchange} Liquidation Feed`
+          });
+        }
+      }
+
+      liquidationIntel = liquidationEngine.evaluateLiquidations(
+        cleanFormatted,
+        normExchange,
+        price,
+        change24h,
+        derivatives?.openInterestChange24h ?? null,
+        liqEvents
+      );
+    } catch (err) {
+      console.warn('Liquidation intelligence evaluation failed:', (err as Error).message);
+    }
+
+    // 3. Whale Transfers
+    let whaleTransfers: WhaleTransfer[] = [];
+    try {
+      whaleTransfers = await whaleProviderManager.getLargeTransfers(baseAsset, { limit: 15 });
+    } catch (err) {
+      console.warn('Whale transfer fetch failed:', (err as Error).message);
+    }
+
     const coin: NormalizedCoinData = {
       id: `${normExchange.toLowerCase()}_${ticker?.rawSymbol || cleanRaw}`,
       symbol: cleanFormatted,
@@ -697,8 +826,21 @@ export class MarketDataService {
       marketStructure: structure,
       derivatives: derivatives || null,
       history7d,
-      crossExchangeMarkets
+      crossExchangeMarkets,
+      orderFlow,
+      liquidationIntel,
+      whaleTransfers
     };
+
+    // Enrich with External Intelligence (Whale, DEX, On-Chain)
+    try {
+      const cleanBase = baseAsset.toUpperCase();
+      if (['BTC', 'ETH', 'SOL', 'XRP', 'DOGE'].includes(cleanBase)) {
+        coin.externalIntelligence = await externalIntelligenceNormalizer.getIntelligenceSummary(cleanBase, cleanFormatted);
+      }
+    } catch {
+      // Keep resilient
+    }
 
     // Calculate real-time market signal using timeframe candles
     try {

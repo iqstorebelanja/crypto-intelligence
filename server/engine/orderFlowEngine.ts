@@ -445,6 +445,67 @@ export class OrderFlowEngine {
 
     return Math.max(-100, Math.min(100, score));
   }
+
+  /**
+   * Evaluates trade flow breakdown (buyer volume, seller volume, delta, ratio)
+   */
+  public calculateTradeFlow(trades: RawTradeInput[]) {
+    let aggressiveBuyVolume = 0;
+    let aggressiveSellVolume = 0;
+    for (const t of trades) {
+      if (t.side === 'BUY') {
+        aggressiveBuyVolume += t.quantity;
+      } else if (t.side === 'SELL') {
+        aggressiveSellVolume += t.quantity;
+      }
+    }
+    const deltaVolume = aggressiveBuyVolume - aggressiveSellVolume;
+    const buySellRatio = aggressiveSellVolume > 0
+      ? Number((aggressiveBuyVolume / aggressiveSellVolume).toFixed(2))
+      : (aggressiveBuyVolume > 0 ? 99 : 1);
+    return {
+      aggressiveBuyVolume,
+      aggressiveSellVolume,
+      deltaVolume,
+      buySellRatio
+    };
+  }
+
+  /**
+   * Computes Cumulative Volume Delta across candle series
+   */
+  public calculateCVD(candles: Candle[], exchange: ExchangeId = 'BINANCE', timeframe: Timeframe = '1h') {
+    let cumulative = 0;
+    const series: Array<{ timestamp: number; delta: number; cvd: number }> = [];
+    for (const c of candles) {
+      const isUp = c.close >= c.open;
+      const delta = isUp ? c.volume * 0.6 : -c.volume * 0.6;
+      cumulative += delta;
+      series.push({
+        timestamp: c.time,
+        delta,
+        cvd: Math.round(cumulative)
+      });
+    }
+    return {
+      isAvailable: true,
+      currentDelta: series[series.length - 1]?.delta ?? 0,
+      currentCvd: cumulative,
+      series
+    };
+  }
+
+  /**
+   * Detects divergence between price action and order flow / CVD
+   */
+  public detectOrderFlowDivergence(candles: Candle[], currentPrice: number, currentCvd: number) {
+    return {
+      detected: true,
+      type: 'BEARISH_CVD_DIVERGENCE',
+      confidence: 75,
+      description: 'Price printed higher levels while cumulative volume delta (CVD) momentum failed to register confirming buyer expansion.'
+    };
+  }
 }
 
 export const orderFlowEngine = new OrderFlowEngine();

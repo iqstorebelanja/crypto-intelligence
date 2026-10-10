@@ -9,11 +9,12 @@ interface AuthModalProps {
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuccess }) => {
-  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [mode, setMode] = useState<'login' | 'register' | 'forgot'>('login');
   const [email, setEmail] = useState('demo@cryptointelligence.ai');
   const [password, setPassword] = useState('demo1234');
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   if (!isOpen) return null;
@@ -21,9 +22,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setInfoMessage(null);
     setLoading(true);
 
     try {
+      if (mode === 'forgot') {
+        const res = await fetch('/api/account/password/forgot', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email })
+        });
+        const data = await res.json();
+        // Section 11: generic response
+        setInfoMessage(data.message || 'If the account exists, reset instructions have been sent.');
+        return;
+      }
+
       const endpoint = mode === 'login' ? '/api/auth/login' : '/api/auth/register';
       const body = mode === 'login' ? { email, password } : { email, password, name };
 
@@ -75,7 +89,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
           <div className="flex items-center space-x-2">
             <ShieldCheck className="w-5 h-5 text-cyan-400" />
             <span className="font-mono font-bold text-sm text-white tracking-wider">
-              {mode === 'login' ? 'TERMINAL ACCESS' : 'REGISTER ANALYST'}
+              {mode === 'login' ? 'TERMINAL ACCESS' : mode === 'register' ? 'REGISTER ANALYST' : 'RESET CREDENTIALS'}
             </span>
           </div>
           <button
@@ -87,33 +101,43 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
         </div>
 
         <div className="p-6 space-y-4">
-          {/* Quick Demo Access */}
-          <div className="p-3 bg-[#111928] border border-[#1e2a3f] rounded-xl flex items-center justify-between">
-            <div>
-              <div className="text-xs font-bold text-white flex items-center space-x-1">
-                <Zap className="w-3.5 h-3.5 text-amber-400" />
-                <span>Instant Demo Analyst</span>
+          {mode !== 'forgot' && (
+            <>
+              {/* Quick Demo Access */}
+              <div className="p-3 bg-[#111928] border border-[#1e2a3f] rounded-xl flex items-center justify-between">
+                <div>
+                  <div className="text-xs font-bold text-white flex items-center space-x-1">
+                    <Zap className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Instant Demo Analyst</span>
+                  </div>
+                  <div className="text-[11px] text-slate-400">One-click authenticated access</div>
+                </div>
+                <button
+                  onClick={handleDemoLogin}
+                  disabled={loading}
+                  className="px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold shadow transition-all active:scale-95"
+                >
+                  1-Click Demo
+                </button>
               </div>
-              <div className="text-[11px] text-slate-400">One-click authenticated access</div>
-            </div>
-            <button
-              onClick={handleDemoLogin}
-              disabled={loading}
-              className="px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold shadow transition-all active:scale-95"
-            >
-              1-Click Demo
-            </button>
-          </div>
 
-          <div className="relative flex py-1 items-center">
-            <div className="flex-grow border-t border-[#1b253b]"></div>
-            <span className="flex-shrink mx-2 text-[10px] text-slate-500 uppercase tracking-widest font-mono">Or Credentials</span>
-            <div className="flex-grow border-t border-[#1b253b]"></div>
-          </div>
+              <div className="relative flex py-1 items-center">
+                <div className="flex-grow border-t border-[#1b253b]"></div>
+                <span className="flex-shrink mx-2 text-[10px] text-slate-500 uppercase tracking-widest font-mono">Or Credentials</span>
+                <div className="flex-grow border-t border-[#1b253b]"></div>
+              </div>
+            </>
+          )}
 
           {error && (
             <div className="p-2.5 rounded bg-rose-950/60 border border-rose-800 text-rose-300 text-xs font-medium">
               {error}
+            </div>
+          )}
+
+          {infoMessage && (
+            <div className="p-2.5 rounded bg-emerald-950/60 border border-emerald-800 text-emerald-300 text-xs font-medium">
+              {infoMessage}
             </div>
           )}
 
@@ -150,41 +174,81 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
               </div>
             </div>
 
-            <div>
-              <label className="text-[11px] uppercase font-mono text-slate-400">Password</label>
-              <div className="relative mt-1">
-                <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
-                <input
-                  type="password"
-                  required
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full bg-[#080d16] border border-[#1e2a3f] rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-cyan-500 font-mono"
-                />
+            {mode !== 'forgot' && (
+              <div>
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] uppercase font-mono text-slate-400">Password</label>
+                  {mode === 'login' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMode('forgot');
+                        setError(null);
+                        setInfoMessage(null);
+                      }}
+                      className="text-[10px] text-cyan-400 hover:underline font-mono"
+                    >
+                      Forgot password?
+                    </button>
+                  )}
+                </div>
+                <div className="relative mt-1">
+                  <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+                  <input
+                    type="password"
+                    required
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full bg-[#080d16] border border-[#1e2a3f] rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-cyan-500 font-mono"
+                  />
+                </div>
               </div>
-            </div>
+            )}
 
             <button
               type="submit"
               disabled={loading}
               className="w-full py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold tracking-wide transition-all shadow-lg shadow-cyan-600/20 active:scale-95"
             >
-              {loading ? 'Authenticating...' : mode === 'login' ? 'Authenticate Terminal Session' : 'Create Analyst Account'}
+              {loading
+                ? 'Processing...'
+                : mode === 'login'
+                ? 'Authenticate Terminal Session'
+                : mode === 'register'
+                ? 'Create Analyst Account'
+                : 'Send Reset Instructions'}
             </button>
           </form>
 
-          <div className="text-center pt-2">
-            <button
-              type="button"
-              onClick={() => {
-                setMode(mode === 'login' ? 'register' : 'login');
-                setError(null);
-              }}
-              className="text-xs text-cyan-400 hover:underline"
-            >
-              {mode === 'login' ? "Don't have an analyst account? Register here" : 'Already registered? Login to existing session'}
-            </button>
+          <div className="text-center pt-2 space-y-1">
+            {mode === 'forgot' ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setMode('login');
+                  setError(null);
+                  setInfoMessage(null);
+                }}
+                className="text-xs text-cyan-400 hover:underline"
+              >
+                Return to Login
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setMode(mode === 'login' ? 'register' : 'login');
+                  setError(null);
+                  setInfoMessage(null);
+                }}
+                className="text-xs text-cyan-400 hover:underline"
+              >
+                {mode === 'login'
+                  ? "Don't have an analyst account? Register here"
+                  : 'Already registered? Login to existing session'}
+              </button>
+            )}
           </div>
         </div>
 

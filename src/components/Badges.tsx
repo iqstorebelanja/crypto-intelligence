@@ -1,6 +1,7 @@
-import { Activity, AlertTriangle, CheckCircle2, Clock, ShieldAlert, Star, TrendingDown, TrendingUp } from 'lucide-react';
+import { Activity, AlertTriangle, CheckCircle2, Clock, ShieldAlert, Sparkles, Star, TrendingDown, TrendingUp } from 'lucide-react';
 import React from 'react';
-import { AnalyticalSignal, BullClassification, DownsideRiskClassification } from '../types';
+import { AnalyticalSignal, BullClassification, DownsideRiskClassification, User } from '../types';
+import { clientEntitlementService } from '../services/entitlementService';
 
 export const ScoreBadge: React.FC<{ score: number; classification?: BullClassification; compact?: boolean }> = ({
   score,
@@ -79,23 +80,54 @@ export const SignalBadge: React.FC<{ signal: AnalyticalSignal }> = ({ signal }) 
   );
 };
 
-export const DataFreshness: React.FC<{ seconds: number; status: 'LIVE' | 'DATA DELAYED' | 'UNAVAILABLE' }> = ({
+export const DataFreshness: React.FC<{
+  seconds: number;
+  status: 'LIVE' | 'DATA DELAYED' | 'DELAYED' | 'STALE' | 'OFFLINE' | 'UNAVAILABLE' | string;
+}> = ({
   seconds,
   status
 }) => {
-  if (status === 'DATA DELAYED' || seconds > 45) {
+  const normStatus = (status || 'LIVE').toUpperCase();
+
+  if (normStatus === 'OFFLINE') {
+    return (
+      <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-mono bg-rose-950/80 border border-rose-600/50 text-rose-300">
+        <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+        <span>OFFLINE</span>
+      </span>
+    );
+  }
+
+  if (normStatus === 'UNAVAILABLE') {
+    return (
+      <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-mono bg-slate-800 border border-slate-700 text-slate-400">
+        <span>UNAVAILABLE</span>
+      </span>
+    );
+  }
+
+  if (normStatus === 'STALE') {
+    return (
+      <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-mono bg-orange-950/80 border border-orange-600/50 text-orange-300">
+        <AlertTriangle className="w-3 h-3 text-orange-400" />
+        <span>STALE ({seconds}s)</span>
+      </span>
+    );
+  }
+
+  if (normStatus === 'DATA DELAYED' || normStatus === 'DELAYED' || seconds > 45) {
     return (
       <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-mono bg-amber-950/60 border border-amber-600/40 text-amber-300">
         <AlertTriangle className="w-3 h-3 text-amber-400" />
-        <span>DATA DELAYED ({seconds}s)</span>
+        <span>DELAYED ({seconds}s)</span>
       </span>
     );
   }
 
   return (
     <span className="inline-flex items-center space-x-1 text-[11px] font-mono text-slate-400">
-      <Clock className="w-3 h-3 text-slate-500" />
-      <span>Updated {seconds}s ago</span>
+      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+      <span>LIVE ({seconds}s ago)</span>
     </span>
   );
 };
@@ -138,5 +170,55 @@ export const WatchlistButton: React.FC<{
     >
       <Star className={`w-4 h-4 ${isSaved ? 'fill-amber-400' : ''}`} />
     </button>
+  );
+};
+
+export const EntitlementBadge: React.FC<{
+  user: User | null;
+  size?: 'sm' | 'md';
+  showDaysRemaining?: boolean;
+}> = ({ user, size = 'sm', showDaysRemaining = false }) => {
+  if (!user) {
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-800 text-slate-400 border border-slate-700">
+        GUEST
+      </span>
+    );
+  }
+
+  if (user.role === 'admin') {
+    return (
+      <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-purple-950/80 text-purple-300 border border-purple-600/50">
+        <span>ADMIN</span>
+      </span>
+    );
+  }
+
+  const isTrial = clientEntitlementService.isTrialActive(user);
+  const isPro = clientEntitlementService.isPro(user);
+
+  if (isTrial) {
+    const daysText = showDaysRemaining ? clientEntitlementService.getTrialRemainingText(user) : '';
+    return (
+      <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-cyan-950/80 text-cyan-300 border border-cyan-500/40 shadow-xs shadow-cyan-500/10">
+        <Sparkles className="w-2.5 h-2.5 text-cyan-400" />
+        <span>PRO TRIAL</span>
+        {daysText && <span className="opacity-75 text-[9px] font-normal">({daysText})</span>}
+      </span>
+    );
+  }
+
+  if (isPro) {
+    return (
+      <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-950/80 text-amber-300 border border-amber-500/50 shadow-xs shadow-amber-500/10">
+        <span>PRO</span>
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-900 text-slate-400 border border-slate-700/60">
+      FREE
+    </span>
   );
 };

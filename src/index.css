@@ -1,8 +1,14 @@
 @import "tailwindcss";
 
 @layer base {
+  html, body {
+    overflow-x: hidden;
+    max-width: 100vw;
+  }
   body {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
   }
 }
 
@@ -15,10 +21,33 @@
   font-family: 'Chakra Petch', sans-serif;
 }
 
-/* Sleek custom scrollbars */
+/* Safe area padding for mobile bottom nav, virtual keyboard, and notch */
+.pb-safe {
+  padding-bottom: max(env(safe-area-inset-bottom, 0.75rem), 0.75rem);
+}
+.pt-safe {
+  padding-top: max(env(safe-area-inset-top, 0.5rem), 0.5rem);
+}
+.mb-safe {
+  margin-bottom: max(env(safe-area-inset-bottom, 0.75rem), 0.75rem);
+}
+.bottom-safe {
+  bottom: env(safe-area-inset-bottom, 0px);
+}
+
+@supports (height: 100dvh) {
+  .min-h-screen-dvh {
+    min-height: 100dvh;
+  }
+  .h-screen-dvh {
+    height: 100dvh;
+  }
+}
+
+/* Custom scrollbars */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
   background: #0b0e14;
@@ -29,4 +58,204 @@
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #334155;
+}
+
+/* LIGHT THEME HIGH-CONTRAST FINANCIAL TRADING STYLES */
+html.light {
+  color-scheme: light;
+}
+
+html.light body {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+html.light ::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+html.light ::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+}
+html.light ::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Light Mode Overrides for Surfaces & Backgrounds */
+html.light .bg-\[\#070b13\],
+html.light .bg-\[\#0b0e14\],
+html.light .bg-\[\#080d16\],
+html.light .bg-\[\#070b12\],
+html.light .bg-\[\#0a0f19\],
+html.light .bg-\[\#0a101d\] {
+  background-color: #f8fafc !important;
+}
+
+html.light .bg-\[\#080d16\]\/95,
+html.light .bg-\[\#080d16\]\/50 {
+  background-color: rgba(248, 250, 252, 0.95) !important;
+}
+
+html.light .bg-\[\#0c121e\],
+html.light .bg-\[\#0d1424\],
+html.light .bg-\[\#0e1626\],
+html.light .bg-\[\#0b101b\],
+html.light .bg-\[\#0b111e\],
+html.light .bg-\[\#0d1422\],
+html.light .bg-\[\#0c121e\]\/95 {
+  background-color: #ffffff !important;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05);
+}
+
+html.light .bg-\[\#111928\],
+html.light .bg-\[\#121c2e\],
+html.light .bg-\[\#131d33\],
+html.light .bg-\[\#101827\],
+html.light .bg-\[\#182338\] {
+  background-color: #f1f5f9 !important;
+}
+
+html.light .hover\:bg-\[\#111928\]:hover,
+html.light .hover\:bg-\[\#121c2e\]:hover,
+html.light .hover\:bg-\[\#131d33\]:hover,
+html.light .hover\:bg-\[\#182338\]:hover,
+html.light .hover\:bg-slate-800:hover,
+html.light .hover\:bg-slate-800\/50:hover,
+html.light .hover\:bg-slate-800\/60:hover {
+  background-color: #e2e8f0 !important;
+}
+
+/* Light Mode Borders */
+html.light .border-\[\#182338\],
+html.light .border-\[\#1b253b\],
+html.light .border-\[\#1e2a42\],
+html.light .border-\[\#1d2940\],
+html.light .border-\[\#1d2b42\],
+html.light .border-\[\#1d2a42\],
+html.light .border-\[\#141d2d\],
+html.light .border-\[\#152033\],
+html.light .border-\[\#162033\],
+html.light .border-\[\#121c2d\],
+html.light .border-\[\#141e30\],
+html.light .border-\[\#172236\],
+html.light .border-\[\#18243a\],
+html.light .border-\[\#172238\] {
+  border-color: #e2e8f0 !important;
+}
+
+html.light .divide-\[\#131d2e\] > :not([hidden]) ~ :not([hidden]),
+html.light .divide-\[\#162033\] > :not([hidden]) ~ :not([hidden]),
+html.light .divide-\[\#182338\] > :not([hidden]) ~ :not([hidden]) {
+  border-color: #e2e8f0 !important;
+}
+
+/* Light Mode High-Contrast Typography */
+html.light .text-white,
+html.light .text-slate-100,
+html.light .text-slate-200 {
+  color: #0f172a !important;
+}
+
+html.light .text-slate-300,
+html.light .text-slate-400 {
+  color: #334155 !important;
+}
+
+html.light .text-slate-500 {
+  color: #64748b !important;
+}
+
+/* Light Mode Form Inputs, Textareas, and Selects */
+html.light input[type="text"],
+html.light input[type="password"],
+html.light input[type="email"],
+html.light input[type="number"],
+html.light textarea,
+html.light select {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+html.light input::placeholder,
+html.light textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* Light Mode Modal Backdrop */
+html.light .bg-black\/80,
+html.light .bg-black\/75,
+html.light .bg-black\/70,
+html.light .bg-black\/60 {
+  background-color: rgba(15, 23, 42, 0.6) !important;
+}
+
+/* Accent Adaptations for Light Mode */
+html.light .text-cyan-400,
+html.light .text-cyan-300 {
+  color: #0284c7 !important;
+}
+
+html.light .bg-cyan-500\/10,
+html.light .bg-cyan-500\/15,
+html.light .bg-cyan-500\/20,
+html.light .bg-cyan-950,
+html.light .bg-cyan-950\/40,
+html.light .bg-cyan-950\/60,
+html.light .bg-cyan-950\/80 {
+  background-color: #e0f2fe !important;
+  color: #0369a1 !important;
+}
+
+html.light .text-amber-400,
+html.light .text-amber-300 {
+  color: #d97706 !important;
+}
+
+html.light .bg-amber-950,
+html.light .bg-amber-950\/20,
+html.light .bg-amber-950\/40,
+html.light .bg-amber-950\/60,
+html.light .bg-amber-950\/80,
+html.light .bg-amber-500\/20 {
+  background-color: #fef3c7 !important;
+  color: #92400e !important;
+}
+
+html.light .bg-rose-950,
+html.light .bg-rose-950\/40,
+html.light .bg-rose-950\/50,
+html.light .bg-rose-950\/60,
+html.light .bg-rose-950\/80,
+html.light .bg-rose-500\/20 {
+  background-color: #fee2e2 !important;
+  color: #b91c1c !important;
+}
+
+html.light .bg-emerald-950,
+html.light .bg-emerald-950\/40,
+html.light .bg-emerald-950\/50,
+html.light .bg-emerald-950\/60,
+html.light .bg-emerald-950\/80,
+html.light .bg-emerald-900\/60,
+html.light .bg-emerald-500\/20 {
+  background-color: #d1fae5 !important;
+  color: #047857 !important;
+}
+
+html.light .bg-purple-950,
+html.light .bg-purple-950\/30,
+html.light .bg-purple-950\/40,
+html.light .bg-purple-950\/60,
+html.light .bg-purple-950\/80 {
+  background-color: #f3e8ff !important;
+  color: #7e22ce !important;
+}
+
+html.light .bg-slate-900\/60,
+html.light .bg-slate-800\/60,
+html.light .bg-slate-800\/50,
+html.light .bg-slate-800 {
+  background-color: #f1f5f9 !important;
+  color: #334155 !important;
+  border-color: #cbd5e1 !important;
 }

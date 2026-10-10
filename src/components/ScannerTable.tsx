@@ -1,11 +1,14 @@
 import {
   AlertTriangle,
   ChevronRight,
+  ChevronDown,
   Clock,
   Layers,
   Sparkles,
   TrendingDown,
-  TrendingUp
+  TrendingUp,
+  Lock,
+  Info
 } from 'lucide-react';
 import React from 'react';
 import { DataFreshness, RiskBadge, ScoreBadge, SignalBadge, WatchlistButton } from './Badges';
@@ -17,19 +20,44 @@ interface ScannerTableProps {
   onToggleWatchlist: (symbol: string) => void;
   onSelectCoin: (coin: NormalizedCoinData) => void;
   isLoading?: boolean;
+  onOpenUpgrade?: (context?: string) => void;
+  onOpenExplanation?: (coin: NormalizedCoinData) => void;
 }
 
-export const ScannerTable: React.FC<ScannerTableProps> = ({
+export const ScannerTable: React.FC<ScannerTableProps> = React.memo(({
   coins,
   watchlistSymbols,
   onToggleWatchlist,
   onSelectCoin,
-  isLoading = false
+  isLoading = false,
+  onOpenUpgrade,
+  onOpenExplanation
 }) => {
+  const [pageSize, setPageSize] = React.useState<number | 'ALL'>(50);
+  const [currentPage, setCurrentPage] = React.useState<number>(1);
+  const [expandedMobileCoins, setExpandedMobileCoins] = React.useState<Record<string, boolean>>({});
+
+  const toggleExpand = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setExpandedMobileCoins(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [coins.length]);
+
+  const totalPages = pageSize === 'ALL' ? 1 : Math.ceil(coins.length / pageSize);
+  const safePage = Math.min(currentPage, totalPages || 1);
+  const displayedCoins = React.useMemo(() => {
+    if (pageSize === 'ALL') return coins;
+    const start = (safePage - 1) * pageSize;
+    return coins.slice(start, start + pageSize);
+  }, [coins, pageSize, safePage]);
+
   if (isLoading) {
     return (
       <div className="bg-[#0c121e] border border-[#1b253b] rounded-2xl p-12 text-center text-slate-500 font-mono text-xs animate-pulse">
-        Fetching live multi-indicator stream from Binance...
+        Fetching live multi-indicator market stream...
       </div>
     );
   }
@@ -66,7 +94,7 @@ export const ScannerTable: React.FC<ScannerTableProps> = ({
             </tr>
           </thead>
           <tbody className="divide-y divide-[#131d2e] tabular-nums">
-            {coins.map((coin, index) => {
+            {displayedCoins.map((coin, index) => {
               const isSaved = watchlistSymbols.includes(coin.symbol);
               const changeIsPos = coin.change24h >= 0;
               const rsi = coin.indicators.rsi14;
@@ -144,18 +172,47 @@ export const ScannerTable: React.FC<ScannerTableProps> = ({
 
                   {/* Signal */}
                   <td className="py-2.5 px-3 text-left">
-                    {coin.signal ? (
-                      <span
-                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
-                          coin.signal.direction === 'BULLISH'
-                            ? 'bg-emerald-950/80 text-emerald-300 border-emerald-600/40'
-                            : coin.signal.direction === 'BEARISH'
-                            ? 'bg-rose-950/80 text-rose-300 border-rose-600/40'
-                            : 'bg-slate-800 text-slate-300 border-slate-600/40'
-                        }`}
+                    {coin.isLocked ? (
+                      <button
+                        type="button"
+                        onClick={e => {
+                          e.stopPropagation();
+                          if (onOpenUpgrade) onOpenUpgrade('Scanner PRO Intelligence');
+                          else onSelectCoin(coin);
+                        }}
+                        className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-950/70 hover:bg-amber-900/90 text-amber-300 border border-amber-600/40 transition-all active:scale-95 cursor-pointer"
+                        title="PRO Intelligence Locked. Click to upgrade."
                       >
-                        {coin.signal.signalType.replace('_', ' ')}
-                      </span>
+                        <Lock className="w-2.5 h-2.5" />
+                        <span>PRO INTELLIGENCE</span>
+                      </button>
+                    ) : coin.signal ? (
+                      <div className="flex items-center space-x-1.5">
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
+                            coin.signal.direction === 'BULLISH'
+                              ? 'bg-emerald-950/80 text-emerald-300 border-emerald-600/40'
+                              : coin.signal.direction === 'BEARISH'
+                              ? 'bg-rose-950/80 text-rose-300 border-rose-600/40'
+                              : 'bg-slate-800 text-slate-300 border-slate-600/40'
+                          }`}
+                        >
+                          {coin.signal.signalType.replace('_', ' ')}
+                        </span>
+                        {onOpenExplanation && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onOpenExplanation(coin);
+                            }}
+                            className="p-1 rounded bg-[#131d2e] hover:bg-cyan-500/20 text-slate-400 hover:text-cyan-300 border border-[#1e2a40] transition-colors"
+                            title="Why This Signal? View mathematical evidence & provenance"
+                          >
+                            <Info className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
                     ) : (
                       <SignalBadge signal={coin.scores.signal} />
                     )}
@@ -163,7 +220,9 @@ export const ScannerTable: React.FC<ScannerTableProps> = ({
 
                   {/* Strength */}
                   <td className="py-2.5 px-3 text-center font-bold">
-                    {coin.signal ? (
+                    {coin.isLocked ? (
+                      <span className="text-slate-500 font-mono tracking-widest text-xs">••</span>
+                    ) : coin.signal ? (
                       <span
                         className={`text-xs ${
                           coin.signal.strength >= 70
@@ -182,7 +241,9 @@ export const ScannerTable: React.FC<ScannerTableProps> = ({
 
                   {/* MTF Confluence */}
                   <td className="py-2.5 px-3 text-center">
-                    {coin.signal?.multiTimeframeSummary ? (
+                    {coin.isLocked ? (
+                      <span className="text-slate-500 font-mono tracking-widest text-[10px]">••••••</span>
+                    ) : coin.signal?.multiTimeframeSummary ? (
                       <div
                         className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded bg-[#080d16] border border-[#1b263b] text-[10px]"
                         title={coin.signal.multiTimeframeSummary.summaryText}
@@ -240,12 +301,35 @@ export const ScannerTable: React.FC<ScannerTableProps> = ({
 
                   {/* Bull Score */}
                   <td className="py-2.5 px-3 text-center">
-                    <ScoreBadge score={coin.scores.bullScore} classification={coin.scores.bullClassification} />
+                    {coin.isLocked || coin.scores.bullScore < 0 ? (
+                      <button
+                        type="button"
+                        onClick={e => {
+                          e.stopPropagation();
+                          if (onOpenUpgrade) onOpenUpgrade('Scanner Bull Score');
+                          else onSelectCoin(coin);
+                        }}
+                        className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold bg-[#0c121e] hover:bg-amber-950/40 text-amber-400 border border-amber-500/40 transition-all active:scale-95 cursor-pointer"
+                        title="PRO Bull Score Locked. Click to upgrade."
+                      >
+                        <Lock className="w-2.5 h-2.5" />
+                        <span>PRO</span>
+                      </button>
+                    ) : (
+                      <ScoreBadge score={coin.scores.bullScore} classification={coin.scores.bullClassification} />
+                    )}
                   </td>
 
                   {/* Downside Risk */}
                   <td className="py-2.5 px-3 text-center">
-                    <RiskBadge score={coin.scores.downsideRiskScore} classification={coin.scores.downsideRiskClassification} />
+                    {coin.isLocked || coin.scores.downsideRiskScore < 0 ? (
+                      <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold bg-[#0c121e] text-slate-400 border border-slate-700">
+                        <Lock className="w-2.5 h-2.5 text-slate-400" />
+                        <span>PRO</span>
+                      </span>
+                    ) : (
+                      <RiskBadge score={coin.scores.downsideRiskScore} classification={coin.scores.downsideRiskClassification} />
+                    )}
                   </td>
 
                   {/* Freshness */}
@@ -266,7 +350,7 @@ export const ScannerTable: React.FC<ScannerTableProps> = ({
 
       {/* Mobile Card Layout (Fallback for screens < lg) */}
       <div className="block lg:hidden divide-y divide-[#162033] font-mono">
-        {coins.map((coin) => {
+        {displayedCoins.map((coin) => {
           const isSaved = watchlistSymbols.includes(coin.symbol);
           const changeIsPos = coin.change24h >= 0;
 
@@ -313,17 +397,60 @@ export const ScannerTable: React.FC<ScannerTableProps> = ({
               <div className="grid grid-cols-3 gap-2 pt-1 border-t border-[#131d2e] items-center text-center">
                 <div>
                   <div className="text-[9px] uppercase text-slate-500 mb-0.5">Bull Score</div>
-                  <ScoreBadge score={coin.scores.bullScore} compact />
+                  {coin.isLocked || coin.scores.bullScore < 0 ? (
+                    <button
+                      type="button"
+                      onClick={e => {
+                        e.stopPropagation();
+                        if (onOpenUpgrade) onOpenUpgrade('Scanner Bull Score');
+                        else onSelectCoin(coin);
+                      }}
+                      className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#0c121e] text-amber-400 border border-amber-500/40"
+                    >
+                      <Lock className="w-2.5 h-2.5" />
+                      <span>PRO</span>
+                    </button>
+                  ) : (
+                    <ScoreBadge score={coin.scores.bullScore} compact />
+                  )}
                 </div>
                 <div>
                   <div className="text-[9px] uppercase text-slate-500 mb-0.5">Downside Risk</div>
-                  <RiskBadge score={coin.scores.downsideRiskScore} compact />
+                  {coin.isLocked || coin.scores.downsideRiskScore < 0 ? (
+                    <button
+                      type="button"
+                      onClick={e => {
+                        e.stopPropagation();
+                        if (onOpenUpgrade) onOpenUpgrade('Scanner Risk Intelligence');
+                        else onSelectCoin(coin);
+                      }}
+                      className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#0c121e] text-slate-400 border border-slate-700"
+                    >
+                      <Lock className="w-2.5 h-2.5" />
+                      <span>PRO</span>
+                    </button>
+                  ) : (
+                    <RiskBadge score={coin.scores.downsideRiskScore} compact />
+                  )}
                 </div>
                 <div>
                   <div className="text-[9px] uppercase text-slate-500 mb-0.5">
-                    {coin.signal ? `Signal (${coin.signal.strength})` : 'Signal'}
+                    {coin.isLocked ? 'Signal' : coin.signal ? `Signal (${coin.signal.strength})` : 'Signal'}
                   </div>
-                  {coin.signal ? (
+                  {coin.isLocked ? (
+                    <button
+                      type="button"
+                      onClick={e => {
+                        e.stopPropagation();
+                        if (onOpenUpgrade) onOpenUpgrade('Scanner PRO Intelligence');
+                        else onSelectCoin(coin);
+                      }}
+                      className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#0c121e] text-amber-400 border border-amber-500/40"
+                    >
+                      <Lock className="w-2.5 h-2.5" />
+                      <span>PRO</span>
+                    </button>
+                  ) : coin.signal ? (
                     <span
                       className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
                         coin.signal.direction === 'BULLISH'
@@ -341,18 +468,133 @@ export const ScannerTable: React.FC<ScannerTableProps> = ({
                 </div>
               </div>
 
-              {/* Row 3: Quick metrics & freshness */}
+              {/* Row 3: Freshness & Collapsible Details Toggle (Phase 23 Section J) */}
               <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1">
-                <div className="space-x-2">
-                  <span>RSI: <strong className="text-white">{coin.indicators.rsi14}</strong></span>
-                  <span>Vol: <strong className="text-cyan-400">{coin.indicators.volumeAnalysis.ratio}x</strong></span>
-                </div>
                 <DataFreshness seconds={coin.freshnessSeconds} status={coin.dataStatus} />
+                <button
+                  type="button"
+                  onClick={e => toggleExpand(coin.id || coin.symbol, e)}
+                  className="px-2 py-1 rounded bg-[#101726] hover:bg-[#182338] border border-[#1d2b42] text-[10px] text-cyan-400 font-bold flex items-center gap-1 transition-all"
+                >
+                  <span>{expandedMobileCoins[coin.id || coin.symbol] ? 'Less' : 'Details'}</span>
+                  {expandedMobileCoins[coin.id || coin.symbol] ? (
+                    <ChevronDown className="w-3 h-3 rotate-180 transition-transform" />
+                  ) : (
+                    <ChevronDown className="w-3 h-3 transition-transform" />
+                  )}
+                </button>
               </div>
+
+              {/* Collapsed Secondary Metrics (Phase 23 Section J) */}
+              {expandedMobileCoins[coin.id || coin.symbol] && (
+                <div className="p-2.5 rounded-xl bg-[#090e18] border border-[#1a253a] grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px] font-mono animate-in fade-in duration-150">
+                  <div className="flex justify-between items-center bg-[#0d1424] p-1.5 rounded">
+                    <span className="text-slate-500">RSI 14</span>
+                    <strong className="text-white">{coin.indicators.rsi14}</strong>
+                  </div>
+                  <div className="flex justify-between items-center bg-[#0d1424] p-1.5 rounded">
+                    <span className="text-slate-500">Volume</span>
+                    <strong className="text-cyan-400">{coin.indicators.volumeAnalysis.ratio.toFixed(2)}x</strong>
+                  </div>
+                  <div className="flex justify-between items-center bg-[#0d1424] p-1.5 rounded">
+                    <span className="text-slate-500">Open Int</span>
+                    <strong className="text-slate-300">
+                      {coin.derivatives?.openInterestUsd
+                        ? `$${(coin.derivatives.openInterestUsd / 1e6).toFixed(1)}M`
+                        : 'N/A'}
+                    </strong>
+                  </div>
+                  <div className="flex justify-between items-center bg-[#0d1424] p-1.5 rounded">
+                    <span className="text-slate-500">Funding</span>
+                    <strong className="text-slate-300">
+                      {coin.derivatives?.fundingRate !== undefined && coin.derivatives?.fundingRate !== null
+                        ? `${(coin.derivatives.fundingRate * 100).toFixed(4)}%`
+                        : 'N/A'}
+                    </strong>
+                  </div>
+                  <div className="flex justify-between items-center bg-[#0d1424] p-1.5 rounded">
+                    <span className="text-slate-500">Structure</span>
+                    <strong className="text-amber-400 truncate max-w-[80px]">
+                      {coin.marketStructure?.state || 'N/A'}
+                    </strong>
+                  </div>
+                  <div className="flex justify-between items-center bg-[#0d1424] p-1.5 rounded">
+                    <span className="text-slate-500">Whale Intel</span>
+                    <strong className="text-cyan-300">
+                      {coin.externalIntelligence?.whaleActivityScore !== undefined
+                        ? `${coin.externalIntelligence.whaleActivityScore}/100`
+                        : 'N/A'}
+                    </strong>
+                  </div>
+                  <div className="flex justify-between items-center bg-[#0d1424] p-1.5 rounded col-span-2 sm:col-span-2">
+                    <span className="text-slate-500">DEX Pressure</span>
+                    <strong className="text-emerald-400">
+                      {coin.externalIntelligence?.dexActivityScore !== undefined
+                        ? `${coin.externalIntelligence.dexActivityScore}/100 (${coin.externalIntelligence.flowRegime?.replace('_', ' ') || 'ACTIVE'})`
+                        : 'N/A'}
+                    </strong>
+                  </div>
+                </div>
+              )}
             </div>
           );
         })}
       </div>
+
+      {/* Phase 19: Scanner Pagination & Windowing Controls */}
+      {coins.length > 25 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 bg-[#080d16] border-t border-[#182338] text-xs font-mono text-slate-400">
+          <div className="flex items-center space-x-2">
+            <span>
+              Showing {pageSize === 'ALL' ? `1–${coins.length}` : `${(safePage - 1) * pageSize + 1}–${Math.min(safePage * pageSize, coins.length)}`} of {coins.length} pairs
+            </span>
+          </div>
+
+          <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-1.5">
+              <span className="text-slate-500 text-[11px]">Rows:</span>
+              {([25, 50, 100, 'ALL'] as const).map(size => (
+                <button
+                  key={size}
+                  type="button"
+                  onClick={() => { setPageSize(size); setCurrentPage(1); }}
+                  className={`px-2 py-0.5 rounded text-[11px] font-bold transition-all cursor-pointer ${
+                    pageSize === size ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40' : 'bg-[#101726] text-slate-400 hover:text-slate-200 border border-[#1b253b]'
+                  }`}
+                >
+                  {size}
+                </button>
+              ))}
+            </div>
+
+            {pageSize !== 'ALL' && totalPages > 1 && (
+              <div className="flex items-center space-x-1">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={safePage <= 1}
+                  className="px-2.5 py-1 rounded bg-[#101726] hover:bg-[#182338] disabled:opacity-40 disabled:pointer-events-none border border-[#1b253b] text-slate-300 font-mono text-xs cursor-pointer"
+                >
+                  Prev
+                </button>
+                <span className="px-2 text-slate-400 text-xs">
+                  {safePage} / {totalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={safePage >= totalPages}
+                  className="px-2.5 py-1 rounded bg-[#101726] hover:bg-[#182338] disabled:opacity-40 disabled:pointer-events-none border border-[#1b253b] text-slate-300 font-mono text-xs cursor-pointer"
+                >
+                  Next
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
-};
+});
+
+ScannerTable.displayName = 'ScannerTable';

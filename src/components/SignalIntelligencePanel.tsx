@@ -10,6 +10,7 @@ import {
   Compass,
   Filter,
   Layers,
+  Lock,
   Minus,
   RefreshCw,
   Search,
@@ -17,6 +18,8 @@ import {
   Sparkles,
   TrendingDown,
   TrendingUp,
+  Waves,
+  Scale,
   X,
   Zap
 } from 'lucide-react';
@@ -27,9 +30,11 @@ import {
   NormalizedCoinData,
   SignalDirection,
   SignalLifecycleStatus,
-  SignalType
+  SignalType,
+  User
 } from '../types';
 import { DataFreshness, WatchlistButton } from './Badges';
+import { SignalExplanationModal } from './SignalExplanationModal';
 
 interface SignalIntelligencePanelProps {
   coins: NormalizedCoinData[];
@@ -38,6 +43,8 @@ interface SignalIntelligencePanelProps {
   onSelectCoin: (coin: NormalizedCoinData) => void;
   onRefresh?: () => void;
   isRefreshing?: boolean;
+  user?: User | null;
+  onOpenUpgrade?: (context?: string) => void;
 }
 
 type SignalFilterType =
@@ -69,9 +76,12 @@ export const SignalIntelligencePanel: React.FC<SignalIntelligencePanelProps> = (
   onToggleWatchlist,
   onSelectCoin,
   onRefresh,
-  isRefreshing = false
+  isRefreshing = false,
+  user,
+  onOpenUpgrade
 }) => {
   const [selectedSignal, setSelectedSignal] = useState<MarketSignal | null>(null);
+  const [explanationCoin, setExplanationCoin] = useState<NormalizedCoinData | null>(null);
   const [filterType, setFilterType] = useState<SignalFilterType>('ALL');
   const [sortField, setSortField] = useState<SignalSortField>('strength');
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
@@ -376,8 +386,14 @@ export const SignalIntelligencePanel: React.FC<SignalIntelligencePanelProps> = (
                   <tr
                     key={coin.id || coin.symbol}
                     onClick={() => {
-                      if (sig) setSelectedSignal(sig);
-                      else onSelectCoin(coin);
+                      if (coin.isLocked || sig?.isLocked) {
+                        if (onOpenUpgrade) onOpenUpgrade(`${coin.symbol} Signal Intelligence`);
+                        else onSelectCoin(coin);
+                      } else if (sig) {
+                        setSelectedSignal(sig);
+                      } else {
+                        onSelectCoin(coin);
+                      }
                     }}
                     className="hover:bg-[#111928] cursor-pointer transition-colors group"
                   >
@@ -424,7 +440,21 @@ export const SignalIntelligencePanel: React.FC<SignalIntelligencePanelProps> = (
 
                     {/* Signal */}
                     <td className="py-2.5 px-3 text-left">
-                      {sig ? (
+                      {coin.isLocked || sig?.isLocked ? (
+                        <button
+                          type="button"
+                          onClick={e => {
+                            e.stopPropagation();
+                            if (onOpenUpgrade) onOpenUpgrade(`${coin.symbol} Signal Intelligence`);
+                            else onSelectCoin(coin);
+                          }}
+                          className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-950/70 hover:bg-amber-900/90 text-amber-300 border border-amber-600/40 cursor-pointer transition-all active:scale-95"
+                          title="PRO Signal Locked. Click to upgrade."
+                        >
+                          <Lock className="w-2.5 h-2.5" />
+                          <span>PRO SIGNAL</span>
+                        </button>
+                      ) : sig ? (
                         <div className="flex items-center space-x-1.5">
                           <span
                             className={`px-2 py-0.5 rounded text-[10px] font-bold border ${getSignalBadgeColor(
@@ -728,6 +758,46 @@ export const SignalIntelligencePanel: React.FC<SignalIntelligencePanelProps> = (
               </div>
             </div>
 
+            {/* Phase 21: External Intelligence & On-Chain / DEX Evidence */}
+            {selectedSignal.externalContext && (
+              <div className="p-4 bg-[#080d16] border border-cyan-900/40 rounded-xl space-y-3">
+                <div className="flex items-center justify-between text-[11px] font-bold">
+                  <span className="flex items-center space-x-1.5 text-cyan-400 uppercase">
+                    <Scale className="w-3.5 h-3.5" />
+                    <span>External Intelligence & Evidence Confluence (Phase 21)</span>
+                  </span>
+                  <div className="flex items-center space-x-2 text-[10px]">
+                    <span className="px-1.5 py-0.5 rounded bg-[#101726] border border-cyan-800/40 text-cyan-300">
+                      STATUS: {selectedSignal.externalContext.freshness || 'LIVE'}
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded bg-[#101726] border border-[#1b253b] text-slate-300">
+                      {selectedSignal.externalContext.sourceQuality} QUALITY
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 text-center text-[11px]">
+                  <div className="p-2 rounded-lg bg-[#0e1626] border border-[#1d2b45] space-y-0.5">
+                    <div className="text-[10px] text-slate-400">Whale Activity</div>
+                    <div className="font-bold text-cyan-300">{selectedSignal.externalContext.whaleActivityScore} / 100</div>
+                    <div className="text-[9px] text-slate-400">{selectedSignal.externalContext.flowRegime?.replace('_', ' ') || 'BALANCED'}</div>
+                  </div>
+                  <div className="p-2 rounded-lg bg-[#0e1626] border border-[#1d2b45] space-y-0.5">
+                    <div className="text-[10px] text-slate-400">DEX Activity</div>
+                    <div className="font-bold text-indigo-300">{selectedSignal.externalContext.dexActivityScore} / 100</div>
+                    <div className="text-[9px] text-slate-400">AMM Liquidity</div>
+                  </div>
+                  <div className="p-2 rounded-lg bg-[#0e1626] border border-[#1d2b45] space-y-0.5">
+                    <div className="text-[10px] text-slate-400">External Evidence</div>
+                    <div className={`font-bold ${selectedSignal.externalContext.externalEvidenceScore > 0 ? 'text-emerald-400' : selectedSignal.externalContext.externalEvidenceScore < 0 ? 'text-rose-400' : 'text-slate-300'}`}>
+                      {selectedSignal.externalContext.externalEvidenceScore > 0 ? '+' : ''}{selectedSignal.externalContext.externalEvidenceScore} / 100
+                    </div>
+                    <div className="text-[9px] text-slate-400">{selectedSignal.externalContext.dominantDirection || 'NEUTRAL'} ({selectedSignal.externalContext.evidenceCount} obs)</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Supporting & Conflicting Evidence */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Supporting Factors */}
@@ -796,30 +866,59 @@ export const SignalIntelligencePanel: React.FC<SignalIntelligencePanelProps> = (
             </div>
 
             {/* Action button */}
-            <div className="flex justify-end space-x-3 pt-2">
+            <div className="flex justify-between items-center pt-2">
               <button
-                onClick={() => setSelectedSignal(null)}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg font-bold"
-              >
-                Close
-              </button>
-              <button
+                type="button"
                 onClick={() => {
                   const targetCoin = coins.find(
                     c => c.symbol === selectedSignal.symbol && c.exchange === selectedSignal.exchange
                   );
                   if (targetCoin) {
-                    onSelectCoin(targetCoin);
+                    setExplanationCoin(targetCoin);
                   }
                 }}
-                className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg font-bold flex items-center space-x-1.5 shadow-lg shadow-cyan-900/30"
+                className="px-3.5 py-2 bg-cyan-950/80 hover:bg-cyan-900 text-cyan-300 border border-cyan-500/40 rounded-xl font-bold flex items-center space-x-1.5 transition-all shadow-md shadow-cyan-950/40 active:scale-95 cursor-pointer text-xs"
               >
-                <span>OPEN COIN CHART</span>
-                <ChevronRight className="w-4 h-4" />
+                <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                <span>WHY THIS SIGNAL? (EVIDENCE & TRUST)</span>
               </button>
+
+              <div className="flex items-center space-x-3">
+                <button
+                  onClick={() => setSelectedSignal(null)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg font-bold"
+                >
+                  Close
+                </button>
+                <button
+                  onClick={() => {
+                    const targetCoin = coins.find(
+                      c => c.symbol === selectedSignal.symbol && c.exchange === selectedSignal.exchange
+                    );
+                    if (targetCoin) {
+                      onSelectCoin(targetCoin);
+                    }
+                  }}
+                  className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg font-bold flex items-center space-x-1.5 shadow-lg shadow-cyan-900/30"
+                >
+                  <span>OPEN COIN CHART</span>
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           </div>
         </div>
+      )}
+
+      {/* Signal Explanation & Trust Modal */}
+      {explanationCoin && (
+        <SignalExplanationModal
+          coin={explanationCoin}
+          timeframe="1h"
+          user={user}
+          onClose={() => setExplanationCoin(null)}
+          onOpenUpgrade={onOpenUpgrade}
+        />
       )}
     </div>
   );

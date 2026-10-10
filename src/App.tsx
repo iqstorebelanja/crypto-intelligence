@@ -1,20 +1,43 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState, Suspense } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { AiTraderChat } from './components/AiTraderChat';
-import { AlertsManager } from './components/AlertsManager';
 import { AuthModal } from './components/AuthModal';
 import { CoinDetail } from './components/CoinDetail';
-import { DataQualityMonitor } from './components/DataQualityMonitor';
-import { DerivativesScanner } from './components/DerivativesScanner';
 import { MarketHeader, NavTab } from './components/MarketHeader';
 import { MarketOverview } from './components/MarketOverview';
-import { MarketStructureScanner } from './components/MarketStructureScanner';
+import { MobileBottomNav } from './components/MobileBottomNav';
+import { MobileHeader } from './components/MobileHeader';
+import { MobileMoreDrawer } from './components/MobileMoreDrawer';
 import { ScannerFilters, ScannerFilterState } from './components/ScannerFilters';
 import { ScannerTable } from './components/ScannerTable';
-import { SignalIntelligencePanel } from './components/SignalIntelligencePanel';
 import { WatchlistTable } from './components/WatchlistTable';
-import { WhaleScanner } from './components/WhaleScanner';
-import { AdminDashboard } from './components/admin/AdminDashboard';
+import { GlobalFooterAd } from './components/ads/GlobalFooterAd';
+import { UpgradeModal } from './components/UpgradeModal';
+import { UserFeedbackModal } from './components/UserFeedbackModal';
+import { SignalExplanationModal } from './components/SignalExplanationModal';
+import { trackEvent } from './utils/analytics';
+import { NetworkOfflineBanner } from './components/NetworkOfflineBanner';
+import { useNetworkState } from './hooks/useNetworkState';
+import { usePWAInstall } from './hooks/usePWAInstall';
+
+// Phase 19: Route-level code splitting & lazy loading for heavy subviews
+const AiTraderChat = React.lazy(() => import('./components/AiTraderChat').then(m => ({ default: m.AiTraderChat })));
+const AlertsManager = React.lazy(() => import('./components/AlertsManager').then(m => ({ default: m.AlertsManager })));
+const DataQualityMonitor = React.lazy(() => import('./components/DataQualityMonitor').then(m => ({ default: m.DataQualityMonitor })));
+const DerivativesScanner = React.lazy(() => import('./components/DerivativesScanner').then(m => ({ default: m.DerivativesScanner })));
+const MarketStructureScanner = React.lazy(() => import('./components/MarketStructureScanner').then(m => ({ default: m.MarketStructureScanner })));
+const SignalIntelligencePanel = React.lazy(() => import('./components/SignalIntelligencePanel').then(m => ({ default: m.SignalIntelligencePanel })));
+const WhaleScanner = React.lazy(() => import('./components/WhaleScanner').then(m => ({ default: m.WhaleScanner })));
+const CommunityForum = React.lazy(() => import('./components/CommunityForum').then(m => ({ default: m.CommunityForum })));
+const AdminDashboard = React.lazy(() => import('./components/admin/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
+const AccountView = React.lazy(() => import('./components/AccountView').then(m => ({ default: m.AccountView })));
+const PricingView = React.lazy(() => import('./components/PricingView').then(m => ({ default: m.PricingView })));
+const NotificationCenter = React.lazy(() => import('./components/NotificationCenter').then(m => ({ default: m.NotificationCenter })));
+
+const RouteLoadingFallback: React.FC = () => (
+  <div className="bg-[#0c121e] border border-[#1b253b] rounded-2xl p-12 text-center text-slate-500 font-mono text-xs animate-pulse">
+    Loading module...
+  </div>
+);
 import {
   AlertEvent,
   ExchangeId,
@@ -47,10 +70,14 @@ const TAB_ROUTES: Record<Exclude<NavTab, 'coin_detail'>, string> = {
   structure: '/structure',
   watchlist: '/watchlist',
   alerts: '/alerts',
+  notifications: '/notifications',
   data_quality: '/data-quality',
   whales: '/whales',
   ai_trader: '/ai-trader',
-  admin: '/admin'
+  community: '/community',
+  admin: '/admin',
+  account: '/account',
+  pricing: '/pricing'
 };
 
 export default function App() {
@@ -66,17 +93,47 @@ export default function App() {
     if (p === '/structure') return 'structure';
     if (p === '/watchlist') return 'watchlist';
     if (p === '/alerts') return 'alerts';
+    if (p.startsWith('/notifications')) return 'notifications';
     if (p === '/data-quality' || p === '/data_quality') return 'data_quality';
     if (p === '/whales') return 'whales';
     if (p === '/ai-trader' || p === '/ai_trader') return 'ai_trader';
+    if (p.startsWith('/community') || p.startsWith('/forum')) return 'community';
     if (p.startsWith('/admin')) return 'admin';
+    if (p.startsWith('/account')) return 'account';
+    if (p.startsWith('/pricing')) return 'pricing';
     return 'score';
   }, [location.pathname]);
+
+  const [activeExchange, setActiveExchangeState] = useState<ExchangeId>(() => {
+    const urlEx = new URLSearchParams(window.location.search).get('exchange')?.toUpperCase();
+    if (urlEx && /^[A-Z0-9_\-]+$/.test(urlEx)) {
+      return urlEx as ExchangeId;
+    }
+    const saved = localStorage.getItem('active_exchange')?.toUpperCase();
+    if (saved && /^[A-Z0-9_\-]+$/.test(saved)) {
+      return saved as ExchangeId;
+    }
+    return 'ALL';
+  });
+
+  const setActiveExchange = useCallback((ex: ExchangeId) => {
+    setActiveExchangeState(ex);
+    localStorage.setItem('active_exchange', ex);
+    const params = new URLSearchParams(window.location.search);
+    params.set('exchange', ex.toLowerCase());
+    const newUrl = `${window.location.pathname}?${params.toString()}`;
+    window.history.replaceState(null, '', newUrl);
+  }, []);
 
   const handleTabChange = (tab: NavTab) => {
     if (tab === 'coin_detail') return;
     const targetRoute = TAB_ROUTES[tab as keyof typeof TAB_ROUTES] || '/score';
-    navigate(targetRoute);
+    const params = new URLSearchParams(location.search);
+    if (!params.has('exchange') && activeExchange) {
+      params.set('exchange', activeExchange.toLowerCase());
+    }
+    const searchStr = params.toString() ? `?${params.toString()}` : '';
+    navigate(`${targetRoute}${searchStr}`);
   };
 
   const handleSelectCoin = useCallback((coinOrSymbol: NormalizedCoinData | string) => {
@@ -84,10 +141,13 @@ export default function App() {
       ? coinOrSymbol
       : (coinOrSymbol.rawSymbol || coinOrSymbol.symbol);
     const clean = sym.replace(/[\/\-_]/g, '').toUpperCase();
-    navigate(`/coin/${clean}`, { state: { from: location.pathname } });
-  }, [navigate, location.pathname]);
-
-  const [activeExchange, setActiveExchange] = useState<ExchangeId>('BINANCE');
+    const params = new URLSearchParams(location.search);
+    if (!params.has('exchange') && activeExchange) {
+      params.set('exchange', activeExchange.toLowerCase());
+    }
+    const searchStr = params.toString() ? `?${params.toString()}` : '';
+    navigate(`/coin/${clean}${searchStr}`, { state: { from: location.pathname } });
+  }, [navigate, location.pathname, location.search, activeExchange]);
   const [overview, setOverview] = useState<MarketOverviewType | null>(null);
   const [coins, setCoins] = useState<NormalizedCoinData[]>([]);
   const [watchlistSymbols, setWatchlistSymbols] = useState<string[]>([
@@ -105,6 +165,31 @@ export default function App() {
   const [prefillAlertSymbol, setPrefillAlertSymbol] = useState<string | null>(null);
   const [unacknowledgedAlertsCount, setUnacknowledgedAlertsCount] = useState<number>(0);
   const [lastAlertEventId, setLastAlertEventId] = useState<string | null>(null);
+  const [activeAlertToast, setActiveAlertToast] = useState<AlertEvent | null>(null);
+  const [isMobileMoreOpen, setIsMobileMoreOpen] = useState(false);
+  const [isAdVisible, setIsAdVisible] = useState<boolean>(true);
+  const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
+  const [upgradeContext, setUpgradeContext] = useState<string | undefined>(undefined);
+  const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
+  const [explanationCoin, setExplanationCoin] = useState<NormalizedCoinData | null>(null);
+
+  // Phase 28: Track route change analytics event
+  useEffect(() => {
+    trackEvent('app_open', { path: location.pathname });
+  }, [location.pathname]);
+
+  // Phase 23: PWA & Network Resilience Hooks
+  const { needRefresh, updateServiceWorker } = usePWAInstall();
+  const { isOnline, showBackOnlineBanner } = useNetworkState(() => {
+    // When returning online: restore live market feeds and notifications
+    fetchMarketData(false);
+    checkAlertEvents();
+  });
+
+  const handleOpenUpgrade = useCallback((context?: string) => {
+    setUpgradeContext(context);
+    setIsUpgradeModalOpen(true);
+  }, []);
 
   // Check authentication session
   const checkAuth = useCallback(async () => {
@@ -151,14 +236,18 @@ export default function App() {
       const res = await fetch('/api/alerts/events', { headers });
       if (res.ok) {
         const events: AlertEvent[] = await res.json();
-        const unack = events.filter(e => e.status === 'TRIGGERED');
+        const unack = events.filter(e => e.status === 'TRIGGERED' || !e.read);
         setUnacknowledgedAlertsCount(unack.length);
 
         if (events.length > 0) {
           const newest = events[0];
-          if (newest.id !== lastAlertEventId && newest.status === 'TRIGGERED') {
+          if (newest.id !== lastAlertEventId && (newest.status === 'TRIGGERED' || !newest.read)) {
             setLastAlertEventId(newest.id);
-            soundAlert.playAlertChime();
+            soundAlert.playAlertChime(newest.severity);
+            setActiveAlertToast(newest);
+            setTimeout(() => {
+              setActiveAlertToast(prev => (prev?.id === newest.id ? null : prev));
+            }, 6500);
           }
         }
       }
@@ -168,8 +257,13 @@ export default function App() {
   }, [token, lastAlertEventId]);
 
   // Fetch Market Data & Overview with selected exchange
-  const fetchMarketData = useCallback(async () => {
-    setIsRefreshing(true);
+  const fetchMarketData = useCallback(async (isManual: boolean = false) => {
+    if (isManual) {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        return; // Prevent manual refresh storm when offline
+      }
+      setIsRefreshing(true);
+    }
     try {
       const [overviewRes, scannerRes] = await Promise.all([
         fetch(`/api/market/overview?exchange=${activeExchange}`),
@@ -191,7 +285,7 @@ export default function App() {
     } catch (err) {
       console.warn('Market fetch error:', err);
     } finally {
-      setIsRefreshing(false);
+      if (isManual) setIsRefreshing(false);
     }
   }, [activeExchange, checkAlertEvents]);
 
@@ -200,10 +294,45 @@ export default function App() {
     fetchWatchlist();
   }, [checkAuth, fetchWatchlist]);
 
+  // Performance: Dynamic Polling with Visibility API (pauses background polling to conserve mobile CPU, battery & network)
   useEffect(() => {
-    fetchMarketData();
-    const interval = setInterval(fetchMarketData, 10000); // 10-second polling
-    return () => clearInterval(interval);
+    fetchMarketData(false);
+
+    let intervalId: NodeJS.Timeout | null = null;
+
+    const startPolling = () => {
+      if (!intervalId) {
+        intervalId = setInterval(() => {
+          if (!document.hidden) {
+            fetchMarketData(false);
+          }
+        }, 12000);
+      }
+    };
+
+    const stopPolling = () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+    };
+
+    startPolling();
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        stopPolling();
+      } else {
+        fetchMarketData(false);
+        startPolling();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      stopPolling();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [fetchMarketData]);
 
   // Update filters automatically when changing to CRASH RISK tab
@@ -243,6 +372,9 @@ export default function App() {
 
   // Watchlist Toggle
   const handleToggleWatchlist = async (symbol: string) => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      return; // Mutations disabled while offline
+    }
     const isSaved = watchlistSymbols.includes(symbol);
     const updated = isSaved
       ? watchlistSymbols.filter(s => s !== symbol)
@@ -444,7 +576,32 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#070b13] text-slate-100 flex flex-col antialiased selection:bg-cyan-500 selection:text-black">
-      {/* Top Header & Navigation */}
+      {/* Production PWA Network & Update Banner (Phase 23) */}
+      <NetworkOfflineBanner
+        isOnline={isOnline}
+        showBackOnlineBanner={showBackOnlineBanner}
+        needRefresh={needRefresh}
+        onUpdateApp={updateServiceWorker}
+      />
+
+      {/* Mobile Top Header (< lg) */}
+      <MobileHeader
+        activeTab={activeTab}
+        setActiveTab={handleTabChange}
+        activeExchange={activeExchange}
+        setActiveExchange={setActiveExchange}
+        overview={overview}
+        coins={coins}
+        user={user}
+        onOpenAuth={() => setIsAuthOpen(true)}
+        onLogout={handleLogout}
+        onRefresh={() => fetchMarketData(true)}
+        isRefreshing={isRefreshing}
+        unacknowledgedAlertsCount={unacknowledgedAlertsCount}
+        onOpenMore={() => setIsMobileMoreOpen(true)}
+      />
+
+      {/* Desktop Top Header & Navigation (>= lg) */}
       <MarketHeader
         activeTab={activeTab}
         setActiveTab={handleTabChange}
@@ -455,14 +612,16 @@ export default function App() {
         user={user}
         onOpenAuth={() => setIsAuthOpen(true)}
         onLogout={handleLogout}
-        onRefresh={fetchMarketData}
+        onRefresh={() => fetchMarketData(true)}
         isRefreshing={isRefreshing}
         unacknowledgedAlertsCount={unacknowledgedAlertsCount}
+        onOpenFeedback={() => setIsFeedbackModalOpen(true)}
       />
 
-      {/* Main Container with Router Views */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-5 lg:p-6 space-y-6">
-        <Routes>
+      {/* Main Container with Router Views - with mobile safe area bottom padding */}
+      <main className={`flex-1 max-w-7xl w-full mx-auto p-3 sm:p-5 lg:p-6 space-y-6 ${isAdVisible ? 'pb-36 lg:pb-16' : 'pb-24 lg:pb-6'}`}>
+        <Suspense fallback={<RouteLoadingFallback />}>
+          <Routes>
           <Route path="/" element={<Navigate to="/score" replace />} />
           <Route path="/dashboard" element={<Navigate to="/score" replace />} />
 
@@ -478,7 +637,7 @@ export default function App() {
                   onQuickSectionChange={handleQuickSectionChange}
                   filteredCoins={filteredCoins}
                 />
-                <div className="space-y-4">
+                <div id="market-scanner-section" className="space-y-4">
                   <ScannerFilters
                     filters={filters}
                     onChange={setFilters}
@@ -492,6 +651,8 @@ export default function App() {
                     onToggleWatchlist={handleToggleWatchlist}
                     onSelectCoin={handleSelectCoin}
                     isLoading={coins.length === 0 && isRefreshing}
+                    onOpenUpgrade={handleOpenUpgrade}
+                    onOpenExplanation={(c) => setExplanationCoin(c)}
                   />
                 </div>
               </div>
@@ -509,6 +670,8 @@ export default function App() {
                 onSelectCoin={handleSelectCoin}
                 onRefresh={fetchMarketData}
                 isRefreshing={isRefreshing}
+                user={user}
+                onOpenUpgrade={handleOpenUpgrade}
               />
             }
           />
@@ -549,6 +712,8 @@ export default function App() {
                     onToggleWatchlist={handleToggleWatchlist}
                     onSelectCoin={handleSelectCoin}
                     isLoading={coins.length === 0 && isRefreshing}
+                    onOpenUpgrade={handleOpenUpgrade}
+                    onOpenExplanation={(c) => setExplanationCoin(c)}
                   />
                 </div>
               </div>
@@ -564,6 +729,8 @@ export default function App() {
                 coins={coins}
                 onSelectCoin={handleSelectCoin}
                 activeExchange={activeExchange}
+                user={user}
+                onOpenUpgrade={handleOpenUpgrade}
               />
             }
           />
@@ -606,6 +773,7 @@ export default function App() {
                 onSelectCoin={handleSelectCoin}
                 prefillSymbol={prefillAlertSymbol}
                 onClosePrefill={() => setPrefillAlertSymbol(null)}
+                onOpenUpgradeModal={handleOpenUpgrade}
               />
             }
           />
@@ -629,6 +797,9 @@ export default function App() {
             element={
               <WhaleScanner
                 onSelectCoin={handleSelectCoin}
+                activeExchange={activeExchange}
+                user={user}
+                onOpenUpgrade={handleOpenUpgrade}
               />
             }
           />
@@ -640,10 +811,38 @@ export default function App() {
               <AiTraderChat
                 activeExchange={activeExchange}
                 onSelectCoin={handleSelectCoin}
+                token={token}
+                onOpenUpgradeModal={handleOpenUpgrade}
               />
             }
           />
           <Route path="/ai_trader" element={<Navigate to="/ai-trader" replace />} />
+
+          {/* Route: COMMUNITY (Phase 9 PRO Exclusive Community Forum) */}
+          <Route
+            path="/community"
+            element={
+              <CommunityForum
+                user={user}
+                onOpenAuth={() => setIsAuthOpen(true)}
+                token={token}
+                onOpenUpgradeModal={handleOpenUpgrade}
+              />
+            }
+          />
+          <Route
+            path="/community/:channelId"
+            element={
+              <CommunityForum
+                user={user}
+                onOpenAuth={() => setIsAuthOpen(true)}
+                token={token}
+                onOpenUpgradeModal={handleOpenUpgrade}
+              />
+            }
+          />
+          <Route path="/forum" element={<Navigate to="/community" replace />} />
+          <Route path="/forum/*" element={<Navigate to="/community" replace />} />
 
           {/* Route 10: COIN DETAIL (URL is Single Source of Truth) */}
           <Route
@@ -654,6 +853,7 @@ export default function App() {
                 watchlistSymbols={watchlistSymbols}
                 onToggleWatchlist={handleToggleWatchlist}
                 onOpenAlertModal={handleOpenAlertForCoin}
+                onOpenUpgradeModal={handleOpenUpgrade}
               />
             }
           />
@@ -681,9 +881,78 @@ export default function App() {
             }
           />
 
+          {/* Route 12: USER PROFILE, ACCOUNT SECURITY & SESSIONS (Phase 14) */}
+          <Route
+            path="/account"
+            element={
+              <AccountView
+                user={user}
+                token={token}
+                onUpdateUser={u => setUser(u)}
+                onLogout={handleLogout}
+                onOpenAuth={() => setIsAuthOpen(true)}
+                onNavigateToPricing={() => navigate('/pricing')}
+                onOpenUpgradeModal={handleOpenUpgrade}
+              />
+            }
+          />
+          <Route
+            path="/account/sessions"
+            element={
+              <AccountView
+                user={user}
+                token={token}
+                initialTab="sessions"
+                onUpdateUser={u => setUser(u)}
+                onLogout={handleLogout}
+                onOpenAuth={() => setIsAuthOpen(true)}
+                onNavigateToPricing={() => navigate('/pricing')}
+                onOpenUpgradeModal={handleOpenUpgrade}
+              />
+            }
+          />
+
+          {/* Route 13: PRO UPGRADE & PRICING (Phase 16) */}
+          <Route
+            path="/pricing"
+            element={
+              <PricingView
+                user={user}
+                token={token}
+                onUserUpdated={u => setUser(u)}
+                onNavigateToTab={tab => handleTabChange(tab as NavTab)}
+              />
+            }
+          />
+
+          {/* Route 14: NOTIFICATIONS & WEB PUSH (Phase 23 Notification Center & Deep Links) */}
+          <Route
+            path="/notifications"
+            element={
+              <NotificationCenter
+                user={user}
+                token={token}
+                onNavigate={path => navigate(path)}
+                onOpenUpgradeModal={handleOpenUpgrade}
+              />
+            }
+          />
+          <Route
+            path="/notifications/*"
+            element={
+              <NotificationCenter
+                user={user}
+                token={token}
+                onNavigate={path => navigate(path)}
+                onOpenUpgradeModal={handleOpenUpgrade}
+              />
+            }
+          />
+
           {/* Catch-all fallback */}
           <Route path="*" element={<Navigate to="/score" replace />} />
         </Routes>
+      </Suspense>
       </main>
 
       {/* Footer & Regulatory Notice */}
@@ -700,11 +969,124 @@ export default function App() {
         </div>
       </footer>
 
+      {/* Real-time Alert Toast Notification */}
+      {activeAlertToast && (
+        <aside
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className="fixed top-14 right-4 z-50 max-w-sm w-[calc(100%-2rem)] sm:w-80 bg-[#0a1120]/95 backdrop-blur-md border border-cyan-500/50 rounded-2xl p-3.5 shadow-2xl shadow-cyan-950/50 font-mono text-xs animate-in slide-in-from-top-4 duration-300"
+        >
+          <div className="flex items-start justify-between gap-2.5">
+            <div className="space-y-1 flex-1 min-w-0">
+              <div className="flex items-center space-x-2">
+                <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+                <span className="font-bold text-white">{activeAlertToast.symbol}</span>
+                <span className="text-[10px] px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-300 border border-cyan-800">
+                  {activeAlertToast.exchange || 'BINANCE'}
+                </span>
+                <span className="text-[9px] px-1 py-0.2 rounded bg-slate-800 text-slate-400">
+                  {activeAlertToast.category}
+                </span>
+              </div>
+              <h4 className="font-bold text-slate-100 text-xs truncate">
+                {activeAlertToast.title}
+              </h4>
+              <p className="text-[11px] text-slate-300 line-clamp-2 font-sans">
+                {activeAlertToast.message}
+              </p>
+            </div>
+            <button
+              onClick={() => setActiveAlertToast(null)}
+              className="p-1 rounded-lg text-slate-400 hover:text-white flex-shrink-0"
+              aria-label="Dismiss alert notification"
+            >
+              <span className="text-base leading-none">✕</span>
+            </button>
+          </div>
+          <div className="flex items-center justify-between pt-2 mt-2 border-t border-[#18263e]">
+            <button
+              onClick={() => {
+                setActiveAlertToast(null);
+                handleSelectCoin(activeAlertToast.symbol);
+              }}
+              className="text-cyan-400 hover:text-cyan-300 font-bold text-[11px]"
+            >
+              Inspect Coin →
+            </button>
+            <button
+              onClick={() => {
+                setActiveAlertToast(null);
+                handleTabChange('alerts');
+              }}
+              className="text-slate-400 hover:text-slate-200 text-[11px]"
+            >
+              View in Alerts
+            </button>
+          </div>
+        </aside>
+      )}
+
       {/* User Authentication Modal */}
       <AuthModal
         isOpen={isAuthOpen}
         onClose={() => setIsAuthOpen(false)}
         onAuthSuccess={handleAuthSuccess}
+      />
+
+      {/* PRO Upgrade Informational Modal */}
+      <UpgradeModal
+        isOpen={isUpgradeModalOpen}
+        onClose={() => setIsUpgradeModalOpen(false)}
+        user={user}
+        token={token}
+        onUserUpdated={newUser => setUser(newUser)}
+        featureContext={upgradeContext}
+      />
+
+      {/* Phase 28: Real User Feedback & Accuracy Rating Modal */}
+      <UserFeedbackModal
+        isOpen={isFeedbackModalOpen}
+        onClose={() => setIsFeedbackModalOpen(false)}
+      />
+
+      {/* Phase 30: Signal Explanation & Trust Layer Modal */}
+      {explanationCoin && (
+        <SignalExplanationModal
+          coin={explanationCoin}
+          timeframe="1h"
+          user={user}
+          onClose={() => setExplanationCoin(null)}
+          onOpenUpgrade={handleOpenUpgrade}
+        />
+      )}
+
+      {/* Phase 13: Global Footer Ad Slot (Responsive desktop bottom & mobile above bottom nav) */}
+      <GlobalFooterAd
+        user={user}
+        activeExchange={activeExchange}
+        onAdVisibilityChange={setIsAdVisible}
+      />
+
+      {/* Mobile Bottom Navigation (fixed 5 destinations on mobile) */}
+      <MobileBottomNav
+        activeTab={activeTab}
+        onNavigate={handleTabChange}
+        onOpenMore={() => setIsMobileMoreOpen(true)}
+        isMoreOpen={isMobileMoreOpen}
+        unacknowledgedAlertsCount={unacknowledgedAlertsCount}
+      />
+
+      {/* Mobile More Secondary Drawer Sheet */}
+      <MobileMoreDrawer
+        isOpen={isMobileMoreOpen}
+        onClose={() => setIsMobileMoreOpen(false)}
+        activeTab={activeTab}
+        onNavigate={handleTabChange}
+        user={user}
+        onOpenAuth={() => setIsAuthOpen(true)}
+        onLogout={handleLogout}
+        unacknowledgedAlertsCount={unacknowledgedAlertsCount}
       />
     </div>
   );
@@ -714,12 +1096,14 @@ function CoinDetailRoutePage({
   coins,
   watchlistSymbols,
   onToggleWatchlist,
-  onOpenAlertModal
+  onOpenAlertModal,
+  onOpenUpgradeModal
 }: {
   coins: NormalizedCoinData[];
   watchlistSymbols: string[];
   onToggleWatchlist: (symbol: string) => void;
   onOpenAlertModal: (symbol: string) => void;
+  onOpenUpgradeModal?: (context?: string) => void;
 }) {
   const { symbol } = useParams<{ symbol: string }>();
   const [searchParams] = useSearchParams();
@@ -756,6 +1140,7 @@ function CoinDetailRoutePage({
       isSavedInWatchlist={matched ? watchlistSymbols.includes(matched.symbol) : false}
       onToggleWatchlist={onToggleWatchlist}
       onOpenAlertModal={onOpenAlertModal}
+      onOpenUpgradeModal={onOpenUpgradeModal}
     />
   );
 }

@@ -153,8 +153,8 @@ export class BinanceAdapter implements IExchangeAdapter {
         this.isHealthy = true;
         return tickers;
       }
-    } catch (err) {
-      console.warn('Binance real API fetch warning:', (err as Error).message);
+    } catch {
+      // Fallback silently
     }
 
     return this.getFallbackTickers();

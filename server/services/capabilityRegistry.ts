@@ -94,6 +94,69 @@ export class ExchangeCapabilityRegistry {
       status: 'LIVE',
       supportedTimeframes: ['5m', '15m', '1h', '4h', '1D']
     });
+
+    // KRAKEN: High-grade Spot & Futures Order Book
+    this.capabilities.set('KRAKEN', {
+      exchange: 'KRAKEN',
+      spot: true,
+      futures: true,
+      perpetual: false,
+      swap: false,
+      ohlcv: true,
+      openInterest: false,
+      funding: false,
+      liquidations: false,
+      orderBook: true,
+      trades: true,
+      markPrice: false,
+      indexPrice: false,
+      websocket: false,
+      restFallback: true,
+      status: 'LIVE',
+      supportedTimeframes: ['5m', '15m', '1h', '4h', '1D']
+    });
+
+    // GATE.IO: Comprehensive Spot & Perpetual Universe
+    this.capabilities.set('GATE', {
+      exchange: 'GATE',
+      spot: true,
+      futures: false,
+      perpetual: true,
+      swap: false,
+      ohlcv: true,
+      openInterest: true,
+      funding: true,
+      liquidations: false,
+      orderBook: true,
+      trades: true,
+      markPrice: true,
+      indexPrice: true,
+      websocket: false,
+      restFallback: true,
+      status: 'LIVE',
+      supportedTimeframes: ['5m', '15m', '1h', '4h', '1D']
+    });
+
+    // COINBASE: Institutional Spot Liquidity
+    this.capabilities.set('COINBASE', {
+      exchange: 'COINBASE',
+      spot: true,
+      futures: false,
+      perpetual: false,
+      swap: false,
+      ohlcv: true,
+      openInterest: false,
+      funding: false,
+      liquidations: false,
+      orderBook: true,
+      trades: true,
+      markPrice: false,
+      indexPrice: false,
+      websocket: false,
+      restFallback: true,
+      status: 'LIVE',
+      supportedTimeframes: ['5m', '15m', '1h', '4h', '1D']
+    });
   }
 
   public getCapabilities(exchange: ExchangeId): ExchangeCapabilities {

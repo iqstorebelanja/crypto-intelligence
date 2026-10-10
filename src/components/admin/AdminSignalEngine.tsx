@@ -162,6 +162,28 @@ export const AdminSignalEngine: React.FC<AdminSignalEngineProps> = ({ token }) =
     }
   };
 
+  const handleRunPhase8Tests = async () => {
+    setIsRunningTests(true);
+    setTestResults(null);
+    try {
+      const res = await fetch('/api/admin/phase8/tests', { headers: authHeaders });
+      if (res.ok) {
+        const data = await res.json();
+        setTestResults({
+          totalTests: data.totalCount,
+          passedCount: data.passedCount,
+          failedCount: data.failedCount,
+          allPassed: data.failedCount === 0,
+          results: data.results
+        });
+      }
+    } catch (err: any) {
+      setErrorMessage('Failed to execute Phase 8 tests: ' + err.message);
+    } finally {
+      setIsRunningTests(false);
+    }
+  };
+
   const filteredHistory = historicalSignals.filter(
     s =>
       s.symbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -192,14 +214,27 @@ export const AdminSignalEngine: React.FC<AdminSignalEngineProps> = ({ token }) =
           <button
             onClick={handleRunTests}
             disabled={isRunningTests}
-            className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg text-xs font-bold flex items-center space-x-1.5 transition-colors shadow-lg shadow-indigo-900/30"
+            className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg text-xs font-bold flex items-center space-x-1.5 transition-colors shadow-lg shadow-indigo-900/30"
           >
             {isRunningTests ? (
               <RefreshCw className="w-3.5 h-3.5 animate-spin" />
             ) : (
               <Play className="w-3.5 h-3.5" />
             )}
-            <span>RUN 10 AUTOMATED TESTS</span>
+            <span>RUN PHASE 7 TESTS (10)</span>
+          </button>
+
+          <button
+            onClick={handleRunPhase8Tests}
+            disabled={isRunningTests}
+            className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white rounded-lg text-xs font-bold flex items-center space-x-1.5 transition-colors shadow-lg shadow-purple-900/30"
+          >
+            {isRunningTests ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Play className="w-3.5 h-3.5" />
+            )}
+            <span>RUN PHASE 8 TESTS (12)</span>
           </button>
 
           <button

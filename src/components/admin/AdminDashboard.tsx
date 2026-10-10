@@ -5,14 +5,18 @@ import {
   ArrowLeft,
   Bell,
   Bot,
+  Coins,
+  Compass,
   Cpu,
   FileText,
   Lock,
+  Megaphone,
   Radio,
   Server,
   Shield,
   ShieldAlert,
   Sliders,
+  Sparkles,
   TrendingUp,
   Users
 } from 'lucide-react';
@@ -27,9 +31,24 @@ import { AdminLogsAudit } from './AdminLogsAudit';
 import { AdminValidationLab } from './AdminValidationLab';
 import { AdminMarketDataEngine } from './AdminMarketDataEngine';
 import { AdminSignalEngine } from './AdminSignalEngine';
+import { AdminCommunityModeration } from './AdminCommunityModeration';
+import { AdminAiMonetization } from './AdminAiMonetization';
+import { AdminAdvertising } from './AdminAdvertising';
+import { AdminTrialSettings } from './AdminTrialSettings';
+import { AdminNotificationHealth } from './AdminNotificationHealth';
+import { AdminExternalIntelligence } from './AdminExternalIntelligence';
+import { AdminSoftLaunch } from './AdminSoftLaunch';
+import { AdminProductOptimization } from './AdminProductOptimization';
+import { AdminTrustDashboard } from './AdminTrustDashboard';
 
 export type AdminTab =
+  | 'trust-layer'
+  | 'optimization'
+  | 'soft-launch'
   | 'health'
+  | 'external-intelligence'
+  | 'notifications'
+  | 'trial-settings'
   | 'market-engine'
   | 'signal-engine'
   | 'scoring'
@@ -37,6 +56,9 @@ export type AdminTab =
   | 'scanner'
   | 'alerts'
   | 'ai'
+  | 'monetization'
+  | 'advertising'
+  | 'community'
   | 'users'
   | 'logs';
 
@@ -145,6 +167,57 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* Admin Sub-Navigation Tabs */}
       <div className="flex items-center space-x-1.5 overflow-x-auto no-scrollbar border-b border-[#182338] pb-2 text-xs">
         <button
+          onClick={() => setActiveTab('trust-layer')}
+          className={`px-3 py-2 rounded-lg font-bold flex items-center space-x-1.5 transition-all shrink-0 ${
+            activeTab === 'trust-layer'
+              ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm shadow-cyan-500/10'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+          }`}
+        >
+          <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
+          <span className="flex items-center gap-1.5">
+            Intelligence Trust & Explainability
+            <span className="text-[9px] px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-300 border border-cyan-700/50 font-bold">
+              P30
+            </span>
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('optimization')}
+          className={`px-3 py-2 rounded-lg font-bold flex items-center space-x-1.5 transition-all shrink-0 ${
+            activeTab === 'optimization'
+              ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 shadow-sm shadow-indigo-500/10'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+          }`}
+        >
+          <Compass className="w-3.5 h-3.5 text-indigo-400" />
+          <span className="flex items-center gap-1.5">
+            User Feedback & Optimization
+            <span className="text-[9px] px-1.5 py-0.2 rounded bg-indigo-950 text-indigo-300 border border-indigo-700/50 font-bold">
+              P28
+            </span>
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('soft-launch')}
+          className={`px-3 py-2 rounded-lg font-bold flex items-center space-x-1.5 transition-all shrink-0 ${
+            activeTab === 'soft-launch'
+              ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm shadow-cyan-500/10'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+          }`}
+        >
+          <Shield className="w-3.5 h-3.5 text-cyan-400" />
+          <span className="flex items-center gap-1.5">
+            Soft Launch & Safeguards
+            <span className="text-[9px] px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-300 border border-cyan-700/50 font-bold">
+              P27
+            </span>
+          </span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('health')}
           className={`px-3 py-2 rounded-lg font-bold flex items-center space-x-1.5 transition-all shrink-0 ${
             activeTab === 'health'
@@ -154,6 +227,57 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         >
           <Server className="w-3.5 h-3.5 text-cyan-400" />
           <span>System Health & Telemetry</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('external-intelligence')}
+          className={`px-3 py-2 rounded-lg font-bold flex items-center space-x-1.5 transition-all shrink-0 ${
+            activeTab === 'external-intelligence'
+              ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm shadow-cyan-500/10'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+          }`}
+        >
+          <Activity className="w-3.5 h-3.5 text-cyan-400" />
+          <span className="flex items-center gap-1.5">
+            External Intel & Providers
+            <span className="text-[9px] px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-300 border border-cyan-700/50 font-bold">
+              P22
+            </span>
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('notifications')}
+          className={`px-3 py-2 rounded-lg font-bold flex items-center space-x-1.5 transition-all shrink-0 ${
+            activeTab === 'notifications'
+              ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm shadow-cyan-500/10'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+          }`}
+        >
+          <Bell className="w-3.5 h-3.5 text-cyan-400" />
+          <span className="flex items-center gap-1.5">
+            Notification Health
+            <span className="text-[9px] px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-300 border border-cyan-700/50 font-bold">
+              P17
+            </span>
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('trial-settings')}
+          className={`px-3 py-2 rounded-lg font-bold flex items-center space-x-1.5 transition-all shrink-0 ${
+            activeTab === 'trial-settings'
+              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm shadow-amber-500/10'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+          }`}
+        >
+          <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+          <span className="flex items-center gap-1.5">
+            PRO Trial & Feature Gating
+            <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-950 text-amber-300 border border-amber-700/50 font-bold">
+              P15
+            </span>
+          </span>
         </button>
 
         <button
@@ -256,6 +380,57 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </button>
 
         <button
+          onClick={() => setActiveTab('monetization')}
+          className={`px-3 py-2 rounded-lg font-bold flex items-center space-x-1.5 transition-all shrink-0 ${
+            activeTab === 'monetization'
+              ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm shadow-cyan-500/10'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+          }`}
+        >
+          <Coins className="w-3.5 h-3.5 text-cyan-400" />
+          <span className="flex items-center gap-1.5">
+            AI Monetization & Ads
+            <span className="text-[9px] px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-300 border border-cyan-700/50 font-bold">
+              P9B
+            </span>
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('advertising')}
+          className={`px-3 py-2 rounded-lg font-bold flex items-center space-x-1.5 transition-all shrink-0 ${
+            activeTab === 'advertising'
+              ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm shadow-cyan-500/10'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+          }`}
+        >
+          <Megaphone className="w-3.5 h-3.5 text-cyan-400" />
+          <span className="flex items-center gap-1.5">
+            Advertising & House Ads
+            <span className="text-[9px] px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-300 border border-cyan-700/50 font-bold">
+              P13
+            </span>
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('community')}
+          className={`px-3 py-2 rounded-lg font-bold flex items-center space-x-1.5 transition-all shrink-0 ${
+            activeTab === 'community'
+              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm shadow-amber-500/10'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+          }`}
+        >
+          <Shield className="w-3.5 h-3.5 text-amber-400" />
+          <span className="flex items-center gap-1.5">
+            Community & Moderation
+            <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-950 text-amber-300 border border-amber-700/50 font-bold">
+              P9
+            </span>
+          </span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('users')}
           className={`px-3 py-2 rounded-lg font-bold flex items-center space-x-1.5 transition-all shrink-0 ${
             activeTab === 'users'
@@ -281,7 +456,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       </div>
 
       {/* Render Active Submodule */}
+      {activeTab === 'trust-layer' && <AdminTrustDashboard token={token} />}
+      {activeTab === 'optimization' && <AdminProductOptimization token={token} />}
+      {activeTab === 'soft-launch' && <AdminSoftLaunch token={token} />}
       {activeTab === 'health' && <AdminSystemHealth token={token} />}
+      {activeTab === 'external-intelligence' && <AdminExternalIntelligence token={token || ''} />}
+      {activeTab === 'notifications' && <AdminNotificationHealth token={token} />}
+      {activeTab === 'trial-settings' && <AdminTrialSettings token={token} />}
       {activeTab === 'market-engine' && <AdminMarketDataEngine token={token} />}
       {activeTab === 'signal-engine' && <AdminSignalEngine token={token} />}
       {activeTab === 'scoring' && <AdminScoringConfig token={token} />}
@@ -289,6 +470,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {activeTab === 'scanner' && <AdminScannerSymbols token={token} />}
       {activeTab === 'alerts' && <AdminAlertsConfig token={token} />}
       {activeTab === 'ai' && <AdminAiMonitor token={token} />}
+      {activeTab === 'monetization' && <AdminAiMonetization token={token} />}
+      {activeTab === 'advertising' && <AdminAdvertising token={token} />}
+      {activeTab === 'community' && <AdminCommunityModeration token={token} />}
       {activeTab === 'users' && <AdminUserManagement token={token} currentUserId={user.id} />}
       {activeTab === 'logs' && <AdminLogsAudit token={token} />}
     </div>

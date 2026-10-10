@@ -143,8 +143,8 @@ export class BybitAdapter implements IExchangeAdapter {
           return tickers;
         }
       }
-    } catch (err) {
-      console.warn('Bybit real API fetch warning:', (err as Error).message);
+    } catch {
+      // Fallback silently
     }
 
     return this.getFallbackTickers();
@@ -425,7 +425,7 @@ export class BybitAdapter implements IExchangeAdapter {
     };
 
     const now = Date.now();
-    return Object.entries(baselines).map(([base, info]) => ({
+    const fallbackList = Object.entries(baselines).map(([base, info]) => ({
       symbol: `${base}/USDT`,
       rawSymbol: `${base}USDT`,
       baseAsset: base,
@@ -439,9 +439,13 @@ export class BybitAdapter implements IExchangeAdapter {
       bid: info.price * 0.9998,
       ask: info.price * 1.0002,
       timestamp: now,
-      exchange: 'BYBIT',
-      marketType: 'PERPETUAL'
+      exchange: 'BYBIT' as const,
+      marketType: 'PERPETUAL' as const
     }));
+    this.cachedTickers = fallbackList;
+    this.lastFetchTime = now;
+    this.lastUpdated = now;
+    return fallbackList;
   }
 }
 

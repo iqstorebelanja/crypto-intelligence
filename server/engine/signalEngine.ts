@@ -189,6 +189,17 @@ export class SignalEngine {
         context: coin.liquidationIntel?.context?.relation ?? 'BALANCED_LIQUIDATIONS',
         dataQuality: coin.liquidationIntel?.dataQuality ?? 'UNAVAILABLE'
       },
+      externalContext: coin.externalIntelligence ? {
+        whaleActivityScore: coin.externalIntelligence.whaleActivityScore,
+        dexActivityScore: coin.externalIntelligence.dexActivityScore,
+        externalEvidenceScore: coin.externalIntelligence.externalEvidenceScore,
+        flowRegime: coin.externalIntelligence.flowRegime,
+        dominantDirection: coin.externalIntelligence.dominantDirection,
+        evidenceCount: coin.externalIntelligence.evidenceCount,
+        freshness: coin.externalIntelligence.freshness,
+        sourceQuality: coin.externalIntelligence.sourceQuality
+      } : undefined,
+      externalIntelligence: coin.externalIntelligence || null,
       signalModelVersion: SignalEngine.MODEL_VERSION,
       whaleModelVersion: SignalEngine.WHALE_MODEL_VERSION,
       orderFlowVersion: SignalEngine.ORDER_FLOW_VERSION,
@@ -991,6 +1002,34 @@ export class SignalEngine {
         conflictingFactors.push(desc);
       } else {
         neutralFactors.push('Whale transfers observed without persistent accumulation/distribution bias');
+      }
+    }
+
+    // 11. Phase 21: External Intelligence Evidence (DEX, Multichain Whale, Stablecoin Flows)
+    if (coin.externalIntelligence) {
+      const ext = coin.externalIntelligence;
+      for (const sup of ext.supportingEvidence.slice(0, 3)) {
+        evidence.push({
+          category: sup.category === 'DEX' ? 'STRUCTURE' : 'ON_CHAIN',
+          factor: `${sup.category} Supportive Evidence`,
+          type: 'SUPPORTING',
+          description: sup.description,
+          importance: sup.sourceQuality === 'HIGH' ? 'MEDIUM' : 'LOW'
+        });
+        supportingFactors.push(sup.description);
+      }
+      for (const conf of ext.conflictingEvidence.slice(0, 3)) {
+        evidence.push({
+          category: conf.category === 'DEX' ? 'STRUCTURE' : 'ON_CHAIN',
+          factor: `${conf.category} Conflicting Evidence`,
+          type: 'CONFLICTING',
+          description: conf.description,
+          importance: conf.sourceQuality === 'HIGH' ? 'MEDIUM' : 'LOW'
+        });
+        conflictingFactors.push(conf.description);
+      }
+      for (const neu of ext.neutralEvidence.slice(0, 2)) {
+        neutralFactors.push(neu.description);
       }
     }
 
